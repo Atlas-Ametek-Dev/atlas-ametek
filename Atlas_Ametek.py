@@ -7,28 +7,29 @@ from deep_translator import GoogleTranslator
 import streamlit.components.v1 as components
 import pandas as pd
 import base64
-from supabase import create_client, Client
 from streamlit_pdf_viewer import pdf_viewer
 from datetime import datetime
-
-# --- 1. CONFIGURACIÓN INICIAL ---
-st.set_page_config(page_title="Gestión de Manufactura", layout="wide")
-
-# Sustituye estas variables con TUS credenciales de Supabase
-
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 from fpdf import FPDF
-import io
-
 import fitz  # PyMuPDF
 import requests
-import io
 from PIL import Image
 
-import requests
+# --- 1. CONFIGURACIÓN INICIAL ---
+st.set_page_config(page_title="Gestión de Manufactura", layout="wide")
+
+# --- CONEXIÓN A SUPABASE ---
+SUPABASE_URL = st.secrets["SUPABASE_URL"].strip()
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"].strip()
+
+@st.cache_resource
+def init_connection():
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+supabase: Client = init_connection()
 
 @st.cache_data(ttl=1800, show_spinner=False)
 def descargar_bytes_pdf(url_pdf):
@@ -42,8 +43,6 @@ def descargar_bytes_pdf(url_pdf):
     except Exception as e:
         st.error(f"Error al descargar PDF: {e}")
     return None
-
-from fpdf import FPDF
 
 def generar_pdf_reporte_po(po_numero, piezas_lista, comentario_po=""):
     pdf = FPDF()
@@ -110,12 +109,8 @@ def generar_pdf_reporte_po(po_numero, piezas_lista, comentario_po=""):
         return salida.encode('latin-1', errors='replace')
     return bytes(salida)
 
-
-
 def generar_pdf_requisicion(po_number, partidas):
     """Genera la requisición formal en PDF horizontal con hipervínculos funcionales y celdas autoajustables."""
-    
-    # 1. Filtro exclusivo de herramientas
     partidas_herramientas = [
         it for it in partidas 
         if any(term in str(it.get("tipo", "")).lower() for term in ["herramienta", "tool", "inserto", "cortador", "broca", "machuelo", "fresa"])
@@ -129,7 +124,7 @@ def generar_pdf_requisicion(po_number, partidas):
 
     # --- ENCABEZADO SUPERIOR ---
     pdf.set_font("Helvetica", "B", 16)
-    pdf.set_text_color(0, 74, 153) # Azul corporativo
+    pdf.set_text_color(0, 74, 153)
     pdf.cell(0, 8, "REQUISICION DE COMPRA (HERRAMIENTAS) - SHIRSA MAQUINADOS", ln=True, align="C")
 
     pdf.set_font("Helvetica", "B", 10)
@@ -141,7 +136,6 @@ def generar_pdf_requisicion(po_number, partidas):
     pdf.cell(0, 5, f"Fecha de Aprobacion: {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True, align="C")
     pdf.ln(5)
 
-    # Anchos de columnas (Total = 250 mm)
     w_cols = [15, 15, 22, 60, 48, 25, 65]
     encabezados = ["Cant.", "Und.", "Tipo", "Descripcion Tecnica / Modelo", "Medida / Dimension", "Enlace", "Observaciones"]
 
@@ -156,12 +150,10 @@ def generar_pdf_requisicion(po_number, partidas):
 
     dibujar_encabezado()
 
-    # --- FILAS DE DATOS ---
     alto_linea = 4.5
     for it in partidas_a_procesar:
         raw_link = str(it.get("link", "") or "").strip()
         
-        # Etiqueta limpia sin simbolos Unicode
         if raw_link.startswith("http"):
             if "mcmaster" in raw_link.lower():
                 texto_link = "McMaster"
@@ -182,7 +174,6 @@ def generar_pdf_requisicion(po_number, partidas):
             str(it.get("motivo_uso", "") or "-")
         ]
 
-        # 1. Calcular altura real de la fila
         pdf.set_font("Helvetica", "", 8.5)
         lineas_celdas = []
         for i, val in enumerate(valores):
@@ -196,7 +187,6 @@ def generar_pdf_requisicion(po_number, partidas):
 
         altura_fila = max(max(lineas_celdas) * alto_linea + 3, 7.5)
 
-        # 2. Salto de pagina si excede el limite
         if pdf.get_y() + altura_fila > pdf.page_break_trigger:
             pdf.add_page()
             dibujar_encabezado()
@@ -204,15 +194,14 @@ def generar_pdf_requisicion(po_number, partidas):
         pos_x_inicio = pdf.get_x()
         pos_y_inicio = pdf.get_y()
 
-        # 3. Dibujar bordes y colocar datos
         for i, val in enumerate(valores):
             pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
             pdf.set_xy(pos_x_inicio, pos_y_inicio + 1.5)
 
-            if i == 5: # Columna Enlace
+            if i == 5:
                 if raw_link.startswith("http"):
-                    pdf.set_text_color(0, 102, 204) # Azul link
-                    pdf.set_font("Helvetica", "U", 8.5) # Subrayado
+                    pdf.set_text_color(0, 102, 204)
+                    pdf.set_font("Helvetica", "U", 8.5)
                     pdf.cell(w_cols[i], alto_linea, val, border=0, align="C", link=raw_link)
                     pdf.set_text_color(30, 30, 30)
                     pdf.set_font("Helvetica", "", 8.5)
@@ -238,17 +227,13 @@ def enviar_correo_gerente(po_number, pdf_bytes, destinatarios_to=None, destinata
     remitente = st.secrets["SMTP_USER"]
     password = st.secrets["SMTP_PASSWORD"]
 
-    # Tomar destinatarios de los parámetros o de los Secrets por defecto
     if not destinatarios_to:
         destinatarios_to = st.secrets.get("REQUISICION_TO", "ericslosberg@gmail.com")
     if not destinatarios_cc:
-        destinatarios_cc = st.secrets.get("REQUISICION_CC", "shirsa.produccion@nae-supply.com", "juan.rodriguez@nae-supply.com", "diseno.dos.shirsa@nae-supply.com", "soporte@nae-supply.com")
+        destinatarios_cc = st.secrets.get("REQUISICION_CC", "shirsa.produccion@nae-supply.com, juan.rodriguez@nae-supply.com, diseno.dos.shirsa@nae-supply.com, soporte@nae-supply.com")
 
-    # Convertir cadenas separadas por coma en listas limpias
     lista_to = [c.strip() for c in destinatarios_to.split(",") if c.strip()]
     lista_cc = [c.strip() for c in destinatarios_cc.split(",") if c.strip()]
-
-    # Todos los buzones que recibirán el mensaje en el protocolo SMTP
     todos_destinatarios = lista_to + lista_cc
 
     msg = MIMEMultipart()
@@ -260,58 +245,38 @@ def enviar_correo_gerente(po_number, pdf_bytes, destinatarios_to=None, destinata
 
     cuerpo = f"""Buen día Estimada Gerencia y Compras,
 
-                 Favor de procesar la orden de compra de material / herramienta para la PO {po_number}.
+Favor de procesar la orden de compra de material / herramienta para la PO {po_number}.
 
-                 La requisición ha sido validada contra inventario y aprobada por Supervisión de Taller.
-                 En el archivo PDF horizontal adjunto encontrarán la relación detallada de ítems, medidas y justificaciones.
-                
-                 Saludos cordiales,
-                 Sistema de Control y Gestión Atlas - Shirsa Maquinados
-                 """
+La requisición ha sido validada contra inventario y aprobada por Supervisión de Taller.
+En el archivo PDF horizontal adjunto encontrarán la relación detallada de ítems, medidas y justificaciones.
+
+Saludos cordiales,
+Sistema de Control y Gestión Atlas - Shirsa Maquinados
+"""
     msg.attach(MIMEText(cuerpo, "plain"))
 
-    # Adjuntar PDF
     adjunto = MIMEApplication(pdf_bytes, _subtype="pdf")
     adjunto.add_header('Content-Disposition', 'attachment', filename=f"Requisicion_PO_{po_number}.pdf")
     msg.attach(adjunto)
 
-    # Envío mediante TLS
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
         server.login(remitente, password)
-        # sendmail requiere la lista completa (TO + CC)
         server.sendmail(remitente, todos_destinatarios, msg.as_string())
 
-
+@st.cache_data(ttl=600, show_spinner=False)
 def obtener_pos():
     try:
-        # Consulta los valores de po_number en la tabla unificada 'piezas'
         res = supabase.table("piezas").select("po_number").execute()
-        # Filtra valores vacíos, quita duplicados y los ordena
         pos_unicas = sorted(list(set(
             str(r["po_number"]).strip() 
             for r in res.data 
             if r.get("po_number")
         )))
-        # Regresa un diccionario donde la clave es el número de PO
         return {po: po for po in pos_unicas}
     except Exception as e:
         st.error(f"Error al obtener POs: {e}")
         return {}
-
-# Solo estas dos líneas deben leer el secreto
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
-
-# Luego inicializas la conexión
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-
-# Conectar a la base de datos
-@st.cache_resource
-def init_connection():
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-supabase: Client = init_connection()
 
 st.title("🏭 Sistema de Gestión de Manufactura")
 
@@ -346,7 +311,6 @@ else:
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
         st.rerun()
-
 # ==========================================
 # VENTANA 1: DESARROLLADOR (COMPLETO)
 # ==========================================
