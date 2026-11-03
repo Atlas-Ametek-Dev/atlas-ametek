@@ -1,10 +1,10 @@
-streamlit==1.40.2
+streamlit
 supabase
 pypdf
 deep_translator
 pandas
 openpyxl
-streamlit-pdf-viewer==0.0.17
+streamlit-pdf-viewer
 xlsxwriter
 fpdf2
 pymupdf
