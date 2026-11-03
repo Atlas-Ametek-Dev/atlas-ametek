@@ -592,7 +592,7 @@ if rol == "Desarrollador":
 elif rol == "Maquinista":
     st.header("🛠️ Área de Maquinado")
 
-    maquinistas = {"Abel": "8352", "Alejandro": "1497", "Francisco": "5206", "Isaac": "3984", "Jesus": "5731", "Rafael": "6475", "Edwin" : "5759"}
+    maquinistas = {"Abel": "8352", "Alejandro": "1497", "Francisco": "5206", "Isaac": "3984", "Jesus": "5731", "Rafael": "6475", "Edwin" : "5759","Alessandro":"1234"}
     col_l1, col_l2 = st.columns(2)
     usuario = col_l1.selectbox("Nombre:", list(maquinistas.keys()))
     password_ingresado = col_l2.text_input("Contraseña:", type="password")
