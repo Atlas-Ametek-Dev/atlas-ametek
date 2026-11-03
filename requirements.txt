@@ -1,0 +1,10 @@
+streamlit
+supabase
+pypdf
+deep_translator
+pandas
+openpyxl
+streamlit-pdf-viewer
+xlsxwriter
+fpdf2
+pymupdf
