@@ -1148,7 +1148,7 @@ elif rol == "Supervisor":
     usuario = col_l1.selectbox("Nombre:", list(supervisores.keys()))
     password_ingresado = col_l2.text_input("Contraseña:", type="password")
 
-    if password_ingresado and password_ingresado == maquinistas.get(usuario):
+    if password_ingresado and password_ingresado == supervisores.get(usuario):
         st.success(f"Bienvenido, {usuario}.")
 
         # ==========================================
