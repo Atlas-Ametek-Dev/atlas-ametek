@@ -304,9 +304,10 @@ if not st.session_state.autenticado:
 
     # Contraseñas individuales de supervisor y generales de roles
     passwords_supervisores = {
-        "Jonathan": "S2S3_Jon",
-        "Ilagor": "S2S3_Ila",
-        "Alessandro": "S2S3_Ale"
+        "Jonathan": "4384",
+        "Ilagor": "1226",
+        "Alessandro": "1234",
+        "Sayuri": "2222"
     }
 
     passwords_generales = {
