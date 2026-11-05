@@ -285,15 +285,10 @@ st.title("🏭 Sistema de Gestión de Manufactura")
 # --- 5. SISTEMA DE LOGIN CON USUARIOS DE SUPERVISOR ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
-    st.session_state.rol_actual = None
-    st.session_state.usuario_actual = None
-
-if "usuario_actual" not in st.session_state:
-    st.session_state["usuario_actual"] = "General"
 if "rol_actual" not in st.session_state:
-    st.session_state["rol_actual"] = None
-if "autenticado" not in st.session_state:
-    st.session_state["autenticado"] = False
+    st.session_state.rol_actual = None
+if "usuario_actual" not in st.session_state:
+    st.session_state.usuario_actual = None
 
 if not st.session_state.autenticado:
     st.sidebar.header("🔐 Iniciar Sesión")
@@ -332,9 +327,10 @@ if not st.session_state.autenticado:
                 valido = True
 
         if valido:
+            # Guardar correctamente los valores seleccionados en la sesión
             st.session_state.autenticado = True
-            rol = st.session_state.get("rol_actual", "Supervisor")
-            usuario = st.session_state.get("usuario_actual", "Supervisor")
+            st.session_state.rol_actual = rol_elegido
+            st.session_state.usuario_actual = usuario_elegido
             st.rerun()
         else:
             st.sidebar.error("Contraseña incorrecta.")
@@ -342,9 +338,10 @@ if not st.session_state.autenticado:
 else:
     rol = st.session_state.rol_actual
     usuario = st.session_state.usuario_actual
-    st.sidebar.markdown(f"*Usuario:* {usuario} ({rol})")
+    st.sidebar.markdown(f"**Usuario:** `{usuario}` ({rol})")
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
+        st.session_state.rol_actual = None
         st.session_state.usuario_actual = None
         st.rerun()
 # ==========================================
