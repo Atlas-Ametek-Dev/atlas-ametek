@@ -280,70 +280,36 @@ def obtener_pos():
 
 st.title("🏭 Sistema de Gestión de Manufactura")
 
-
-
-# --- 5. SISTEMA DE LOGIN CON USUARIOS DE SUPERVISOR ---
+# --- SISTEMA DE LOGIN ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
-if "rol_actual" not in st.session_state:
     st.session_state.rol_actual = None
-if "usuario_actual" not in st.session_state:
-    st.session_state.usuario_actual = None
 
 if not st.session_state.autenticado:
     st.sidebar.header("🔐 Iniciar Sesión")
     rol_elegido = st.sidebar.selectbox("Selecciona tu rol:", ["Desarrollador", "Maquinista", "Inventarios", "Supervisor", "Gerente"])
-    
-    # Selector de usuario específico si es Supervisor
-    if rol_elegido == "Supervisor":
-        usuario_elegido = st.sidebar.selectbox("Usuario Supervisor:", ["Jonathan", "Ilagor", "Alessandro"])
-    else:
-        usuario_elegido = rol_elegido
-
     password = st.sidebar.text_input("Contraseña:", type="password")
 
-    # Contraseñas individuales de supervisor y generales de roles
-    passwords_supervisores = {
-        "Jonathan": "4384",
-        "Ilagor": "1226",
-        "Alessandro": "1234",
-        "Sayuri": "2222"
-    }
-
-    passwords_generales = {
+    passwords = {
         "Desarrollador": "120501",
         "Maquinista": "Maq",
         "Inventarios": "Inv2026",
+        "Supervisor": "S2S3",
         "Gerente": "GJE2026"
     }
 
     if st.sidebar.button("Entrar"):
-        valido = False
-        if rol_elegido == "Supervisor":
-            # Permite la contraseña individual o la clave maestra 'S2S3'
-            if password == passwords_supervisores.get(usuario_elegido) or password == "S2S3":
-                valido = True
-        else:
-            if password == passwords_generales.get(rol_elegido):
-                valido = True
-
-        if valido:
-            # Guardar correctamente los valores seleccionados en la sesión
+        if password == passwords.get(rol_elegido):
             st.session_state.autenticado = True
             st.session_state.rol_actual = rol_elegido
-            st.session_state.usuario_actual = usuario_elegido
             st.rerun()
         else:
             st.sidebar.error("Contraseña incorrecta.")
     st.stop()
 else:
     rol = st.session_state.rol_actual
-    usuario = st.session_state.usuario_actual
-    st.sidebar.markdown(f"**Usuario:** `{usuario}` ({rol})")
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
-        st.session_state.rol_actual = None
-        st.session_state.usuario_actual = None
         st.rerun()
 # ==========================================
 # VENTANA 1: DESARROLLADOR (COMPLETO)
