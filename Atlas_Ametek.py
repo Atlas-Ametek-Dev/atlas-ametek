@@ -280,11 +280,20 @@ def obtener_pos():
 
 st.title("🏭 Sistema de Gestión de Manufactura")
 
+
+
 # --- 5. SISTEMA DE LOGIN CON USUARIOS DE SUPERVISOR ---
 if "autenticado" not in st.session_state:
     st.session_state.autenticado = False
     st.session_state.rol_actual = None
     st.session_state.usuario_actual = None
+
+if "usuario_actual" not in st.session_state:
+    st.session_state["usuario_actual"] = "General"
+if "rol_actual" not in st.session_state:
+    st.session_state["rol_actual"] = None
+if "autenticado" not in st.session_state:
+    st.session_state["autenticado"] = False
 
 if not st.session_state.autenticado:
     st.sidebar.header("🔐 Iniciar Sesión")
@@ -324,8 +333,8 @@ if not st.session_state.autenticado:
 
         if valido:
             st.session_state.autenticado = True
-            st.session_state.rol_actual = rol_elegido
-            st.session_state.usuario_actual = usuario_elegido
+            rol = st.session_state.get("rol_actual", "Supervisor")
+            usuario = st.session_state.get("usuario_actual", "Supervisor")
             st.rerun()
         else:
             st.sidebar.error("Contraseña incorrecta.")
