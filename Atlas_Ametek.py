@@ -1495,10 +1495,11 @@ elif rol == "Inventarios":
         except Exception as e_tab_b:
             st.error(f"Error al cargar módulo de bajas: {e_tab_b}")
 
-# ==============================================================================
-#                      VENTANA 1: SUPERVISOR (COMPLETO)
-# ==============================================================================
+# ==========================================
+# VENTANA 4: SUPERVISOR (MODO EDICIÓN CONTINUA)
+# ==========================================
 elif rol == "Supervisor":
+
     st.header("📋 Área de Supervisión: Control Continuo")
 
     # ==========================================
@@ -1511,346 +1512,348 @@ elif rol == "Supervisor":
         "Alessandro": "A1498"
     }
 
-    # 2. Control de sesión y login estricto
-    if "supervisor_activo" not in st.session_state or st.session_state.supervisor_activo is None:
+    if "supervisor_activo" not in st.session_state:
         st.session_state.supervisor_activo = None
 
-        st.subheader("🔐 Identificación de Supervisor Requerida")
-        st.info("Selecciona tu nombre e ingresa tu PIN para acceder al tablero de supervisión.")
+    if not st.session_state.supervisor_activo:
+        st.subheader("🔐 Identificación de Supervisor")
+        col_s1, col_s2 = st.columns(2)
+        sup_nombre = col_s1.selectbox("Selecciona tu nombre:", list(supervisores.keys()))
+        sup_pass = col_s2.text_input("Contraseña / PIN de Supervisor:", type="password")
 
-        with st.form(key="form_auth_supervisor"):
-            col_s1, col_s2 = st.columns(2)
-            opciones_sup = ["-- Seleccionar supervisor --"] + list(supervisores.keys())
-            sup_nombre = col_s1.selectbox("Nombre:", opciones_sup)
-            sup_pass = col_s2.text_input("Contraseña / PIN:", type="password")
-
-            if st.form_submit_button("Ingresar al Panel", use_container_width=True):
-                if sup_nombre == "-- Seleccionar supervisor --":
-                    st.error("⚠️ Debes seleccionar tu nombre.")
-                elif sup_pass == supervisores.get(sup_nombre) or sup_pass == "S2S3":
-                    st.session_state.supervisor_activo = sup_nombre
-                    st.session_state.usuario_actual = sup_nombre
-                    st.success(f"Bienvenido, {sup_nombre}.")
-                    st.rerun()
-                else:
-                    st.error("❌ Contraseña incorrecta.")
+        if col_s2.button("Ingresar al Panel de Supervisión"):
+            if sup_pass == supervisores.get(sup_nombre) or sup_pass == "S2S3":
+                st.session_state.supervisor_activo = sup_nombre
+                st.session_state.usuario_actual = sup_nombre
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
         st.stop()
 
-    # Supervisor activo confirmado
     usuario_sup = st.session_state.supervisor_activo
     c_sup_h1, c_sup_h2 = st.columns([4, 1])
     c_sup_h1.success(f"Supervisor en turno: **{usuario_sup}**")
-    if c_sup_h2.button("Cambiar Supervisor", key="btn_cambiar_sup_activo"):
+    if c_sup_h2.button("Cambiar Supervisor"):
         st.session_state.supervisor_activo = None
         st.session_state.usuario_actual = None
         st.rerun()
 
-    # Pestañas de trabajo del supervisor
-    tab_piez_term, tab_reqs, tab_historial_pdf = st.tabs([
-        "🏭 Producción", 
-        "📝 Requisiciones", 
-        "📥 Descargar Historial (PDF)"
-    ])
+    # Pestañas incluyendo la descarga directa del historial
+    tab_piez_term, tab_req, tab_historial_pdf = st.tabs(["🏭 Producción", "📦 Requisiciones", "📥 Descargar Historial (PDF)"])
 
-    # ==========================================================================
-    # PESTAÑA 1: PRODUCCIÓN Y TABLERO PANORAMA GENERAL
-    # ==========================================================================
+    # ==========================================
+    # CONFIGURACIÓN DE ESTADOS Y COLORES
+    # ==========================================
+    LISTA_ESTADOS_PIEZAS = [
+        "En proceso",
+        "Detenida por el torno/fresadora",
+        "Pendiente de tratamiento",
+        "Con proveedor externo",
+        "Material pendiente",
+        "Herramienta pendiente",
+        "Terminada",
+        "Material en almacen",
+        "Fabricada en China",
+        "Comprado",
+        "En fila de calidad",
+        "Cancelada",
+        "Ya llego de china",
+        "Enviado a cliente"
+    ]
+    
+    ESTADOS_COLORES = {
+        "Produccion": {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"},
+        "En proceso": {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"},
+        "Detenida por el torno/fresadora": {"bg": "#B8CCE4", "fg": "#000000", "border": "#95B3D7"},
+        "Pendiente de tratamiento": {"bg": "#FCD5B4", "fg": "#000000", "border": "#FABF8F"},
+        "Con proveedor externo": {"bg": "#E5B8E8", "fg": "#000000", "border": "#D899DD"},
+        "Material pendiente": {"bg": "#FFFF00", "fg": "#000000", "border": "#E6E600"},
+        "Herramienta pendiente": {"bg": "#548235", "fg": "#FFFFFF", "border": "#375623"},
+        "Terminada": {"bg": "#000000", "fg": "#FFFFFF", "border": "#000000"},
+        "Material en almacen": {"bg": "#00FF00", "fg": "#000000", "border": "#00D900"},
+        "Fabricada en China": {"bg": "#33CCCC", "fg": "#000000", "border": "#2BA8A8"},
+        "Comprado": {"bg": "#FF6600", "fg": "#FFFFFF", "border": "#CC5200"},
+        "En fila de calidad": {"bg": "#FFC000", "fg": "#000000", "border": "#D5A000"},
+        "Cancelada": {"bg": "#FFFFFF", "fg": "#C00000", "border": "#C00000"},
+        "Ya llego de china": {"bg": "#0099FF", "fg": "#FFFFFF", "border": "#007ACC"},
+        "Enviado a cliente": {"bg": "#4C2365", "fg": "#FFFFFF", "border": "#172554"}
+    }
+    
+    CATEGORIAS_FILTRO = ["PO en Producción"] + LISTA_ESTADOS_PIEZAS
+
+    # ==========================================
+    # PESTAÑA 1: PRODUCCIÓN (PANORAMA GENERAL + EDICIÓN)
+    # ==========================================
     with tab_piez_term:
-
-        # ==========================================
-        # CONFIGURACIÓN DE ESTADOS Y COLORES
-        # ==========================================
-        LISTA_ESTADOS_PIEZAS = [
-            "En proceso",
-            "Detenida por el torno/fresadora",
-            "Pendiente de tratamiento",
-            "Con proveedor externo",
-            "Material pendiente",
-            "Herramienta pendiente",
-            "Terminada",
-            "Material en almacen",
-            "Fabricada en China",
-            "Comprado",
-            "En fila de calidad",
-            "Cancelada",
-            "Ya llego de china",
-            "Enviado a cliente"
-        ]
-        
-        ESTADOS_COLORES = {
-            "Produccion": {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"},
-            "En proceso": {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"},
-            "Detenida por el torno/fresadora": {"bg": "#B8CCE4", "fg": "#000000", "border": "#95B3D7"},
-            "Pendiente de tratamiento": {"bg": "#FCD5B4", "fg": "#000000", "border": "#FABF8F"},
-            "Con proveedor externo": {"bg": "#E5B8E8", "fg": "#000000", "border": "#D899DD"},
-            "Material pendiente": {"bg": "#FFFF00", "fg": "#000000", "border": "#E6E600"},
-            "Herramienta pendiente": {"bg": "#548235", "fg": "#FFFFFF", "border": "#375623"},
-            "Terminada": {"bg": "#000000", "fg": "#FFFFFF", "border": "#000000"},
-            "Material en almacen": {"bg": "#00FF00", "fg": "#000000", "border": "#00D900"},
-            "Fabricada en China": {"bg": "#33CCCC", "fg": "#000000", "border": "#2BA8A8"},
-            "Comprado": {"bg": "#FF6600", "fg": "#FFFFFF", "border": "#CC5200"},
-            "En fila de calidad": {"bg": "#FFC000", "fg": "#000000", "border": "#D5A000"},
-            "Cancelada": {"bg": "#FFFFFF", "fg": "#C00000", "border": "#C00000"},
-            "Ya llego de china": {"bg": "#0099FF", "fg": "#FFFFFF", "border": "#007ACC"},
-            "Enviado a cliente": {"bg": "#4C2365", "fg": "#FFFFFF", "border": "#172554"}
-        }
-        
-        CATEGORIAS_FILTRO = ["PO en Producción"] + LISTA_ESTADOS_PIEZAS
-        st.subheader("Panorama General de POs (Matriz de Taller)")
-
-        # Consulta con fallback seguro para 'es_ensamble'
-        try:
-            res_todas = supabase.table("piezas").select(
-                'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion, es_ensamble'
-            ).order("fecha_entrega").execute().data or []
-        except Exception:
-            res_todas = supabase.table("piezas").select(
-                'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion'
-            ).order("fecha_entrega").execute().data or []
-
-        # Detección dinámica de meses
-        nombres_meses = {
-            1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
-            7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
-        }
-        meses_set = set()
-        for r in res_todas:
-            f_str = r.get("fecha_entrega")
-            if f_str:
-                try:
-                    f_obj = pd.to_datetime(f_str)
-                    clave_mes = f_obj.strftime("%Y-%m")
-                    etiqueta_mes = f"{nombres_meses.get(f_obj.month, '')} {f_obj.year}"
-                    meses_set.add((clave_mes, etiqueta_mes))
-                except Exception:
-                    pass
-
-        lista_meses_ordenados = sorted(list(meses_set), key=lambda x: x[0])
-        opciones_meses = ["Todos los meses"] + [m[1] for m in lista_meses_ordenados]
-        mapa_etiqueta_clave = {m[1]: m[0] for m in lista_meses_ordenados}
-
-        # Filtros de visualización (Fila 1)
-        c_filtro1, c_filtro_env, c_filtro2, c_filtro3, c_filtro4 = st.columns([1.6, 1.8, 2.0, 2.6, 2.0])
-        with c_filtro1:
-            filtro_solo_prod = st.checkbox("🏭 Solo Producción", value=False)
-        with c_filtro_env:
-            filtro_ocultar_enviadas = st.checkbox("📦 Ocultar enviadas", value=True, help="Oculta las piezas y POs enviadas al cliente")
-        with c_filtro2:
-            mes_seleccionado = st.selectbox(
-                "📅 Mes entrega:",
-                options=opciones_meses,
-                index=0,
-                help="Filtra las piezas según su mes de entrega programado"
-            )
-        with c_filtro3:
-            filtro_terminacion = st.radio(
-                "Filtrar por estatus:",
-                options=["Todas las piezas", "Solo pendientes (Ocultar terminadas)", "Solo terminadas"],
-                horizontal=True,
-                label_visibility="collapsed"
-            )
-        with c_filtro4:
-            busqueda_pieza_filtro = st.text_input("Filtrar por N/P:", placeholder="Ej. 1828...").strip().lower()
-
-        # Filtro de categorías (Fila 2)
-        filtro_categorias_sel = st.multiselect(
-            "🏷️ Filtrar por categorías / estados de pieza:",
-            options=CATEGORIAS_FILTRO,
-            default=[],
-            placeholder="Selecciona una o más categorías (deja vacío para mostrar todas)..."
-        )
-
-        # Filtro de POs (Fila 3)
-        todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
-        opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
-
-        col_po_filtro, col_po_btn = st.columns([3.5, 1.5])
-        with col_po_filtro:
-            po_filtrada_sel = st.selectbox(
-                "🔍 Filtrar panorama por número de PO:",
-                options=opciones_filtro_po,
-                key="filtro_po_matriz",
-                help="Selecciona o escribe el número de PO para ver únicamente su columna"
-            )
-        with col_po_btn:
-            st.write("")
-            st.write("")
-            if po_filtrada_sel != "-- Todas las POs --":
-                if st.button("Ir a editar esta PO ↗️", use_container_width=True):
-                    st.session_state.po_activa = po_filtrada_sel
-                    st.rerun()
-
-        # Procesamiento y armado del tablero HTML
-        if res_todas:
-            pos_matriz = {}
-            clave_mes_filtro = mapa_etiqueta_clave.get(mes_seleccionado, None)
-
-            for reg in res_todas:
-                po_k = str(reg.get("po_number", "Sin PO")).strip()
-                pn_r = str(reg.get("Part number", "-")).strip()
-                f_ent = str(reg.get("fecha_entrega") or "Sin fecha").strip()
-                cant_pz_num = reg.get("cantidad_solicitada") or reg.get("cantidad") or 1
-
-                if clave_mes_filtro:
+        dicc_pos = obtener_pos()
+        lista_pos = list(dicc_pos.keys())
+    
+        if not lista_pos:
+            st.warning("No hay POs registradas.")
+        else:
+            # Sincronización interna con session_state
+            if "po_activa" not in st.session_state:
+                st.session_state.po_activa = lista_pos[0]
+            if st.session_state.po_activa not in lista_pos:
+                st.session_state.po_activa = lista_pos[0]
+    
+            # ==========================================
+            # SECCIÓN 1 (ARRIBA): PANORAMA GENERAL (MATRIZ DE TALLER)
+            # ==========================================
+            st.subheader("📊 Panorama General de POs (Matriz de Taller)")
+    
+            with st.spinner("Generando tablero visual..."):
+                res_todas = supabase.table("piezas").select(
+    'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion, es_ensamble'
+).order("fecha_entrega").execute().data or []
+    
+            # 1. Detectar meses disponibles dinámicamente
+            nombres_meses = {
+                1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril", 5: "Mayo", 6: "Junio",
+                7: "Julio", 8: "Agosto", 9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre"
+            }
+            meses_set = set()
+            for r in res_todas:
+                f_str = r.get("fecha_entrega")
+                if f_str:
                     try:
-                        f_obj = pd.to_datetime(reg.get("fecha_entrega"))
-                        if f_obj.strftime("%Y-%m") != clave_mes_filtro:
-                            continue
+                        f_obj = pd.to_datetime(f_str)
+                        clave_mes = f_obj.strftime("%Y-%m")
+                        etiqueta_mes = f"{nombres_meses.get(f_obj.month, '')} {f_obj.year}"
+                        meses_set.add((clave_mes, etiqueta_mes))
                     except Exception:
-                        continue
+                        pass
+    
+            lista_meses_ordenados = sorted(list(meses_set), key=lambda x: x[0])
+            opciones_meses = ["Todos los meses"] + [m[1] for m in lista_meses_ordenados]
+            mapa_etiqueta_clave = {m[1]: m[0] for m in lista_meses_ordenados}
+    
+            # --- FILTROS DE VISUALIZACIÓN RÁPIDA (FILA 1) ---
+            c_filtro1, c_filtro_env, c_filtro2, c_filtro3, c_filtro4 = st.columns([1.6, 1.8, 2.0, 2.6, 2.0])
+            with c_filtro1:
+                filtro_solo_prod = st.checkbox("🏭 Solo Producción", value=False)
+            with c_filtro_env:
+                filtro_ocultar_enviadas = st.checkbox("📦 Ocultar enviadas", value=True, help="Oculta las piezas y POs que ya fueron enviadas al cliente")
+            with c_filtro2:
+                mes_seleccionado = st.selectbox(
+                    "📅 Mes entrega:",
+                    options=opciones_meses,
+                    index=0,
+                    help="Filtra las piezas según su mes de entrega"
+                )
+            with c_filtro3:
+                filtro_terminacion = st.radio(
+                    "Filtrar por estatus:",
+                    options=["Todas las piezas", "Solo pendientes (Ocultar terminadas)", "Solo terminadas"],
+                    horizontal=True,
+                    label_visibility="collapsed"
+                )
+            with c_filtro4:
+                busqueda_pieza_filtro = st.text_input("Filtrar por N/P:", placeholder="Ej. 1828...").strip().lower()
+    
+            # --- FILTRO POR CATEGORÍAS / ESTADOS (FILA 2) ---
+            filtro_categorias_sel = st.multiselect(
+                "🏷️ Filtrar por categorías / estados de pieza:",
+                options=CATEGORIAS_FILTRO,
+                default=[],
+                placeholder="Selecciona una o más categorías (deja vacío para mostrar todas)..."
+            )
 
-                if po_k not in pos_matriz:
-                    pos_matriz[po_k] = {
-                        "comentario": reg.get("comentarios_po") or "",
-                        "en_produccion": bool(reg.get("po_en_produccion", False)),
-                        "piezas": []
-                    }
-                if reg.get("po_en_produccion"):
-                    pos_matriz[po_k]["en_produccion"] = True
-
-                raw_ests = reg.get("estados_proceso")
-                if isinstance(raw_ests, list) and len(raw_ests) > 0:
-                    lista_est_pz = [e for e in raw_ests if e != "Produccion"]
-                else:
-                    st_ind = reg.get("estado_proceso") or "En proceso"
-                    lista_est_pz = [st_ind] if st_ind != "Produccion" else ["En proceso"]
-
-                if not lista_est_pz:
-                    lista_est_pz = ["En proceso"]
-
-                es_terminada = ("Terminada" in lista_est_pz)
-                es_enviada = ("Enviado a cliente" in lista_est_pz)
-                es_concluida = es_terminada or es_enviada
-
-                if filtro_ocultar_enviadas and es_enviada:
-                    continue
-                if filtro_terminacion == "Solo pendientes (Ocultar terminadas)" and es_concluida:
-                    continue
-                if filtro_terminacion == "Solo terminadas" and not es_terminada:
-                    continue
-
-                if busqueda_pieza_filtro and (busqueda_pieza_filtro not in pn_r.lower()):
-                    continue
-
-                if filtro_categorias_sel:
-                    filtro_estados_sin_prod = [c for c in filtro_categorias_sel if c != "PO en Producción"]
-                    coincide_estado_pieza = any(c in lista_est_pz for c in filtro_estados_sin_prod)
-                    coincide_po_prod = ("PO en Producción" in filtro_categorias_sel and pos_matriz[po_k]["en_produccion"])
-
-                    if filtro_estados_sin_prod and not coincide_estado_pieza:
-                        continue
-                    if not filtro_estados_sin_prod and not coincide_po_prod:
-                        continue
-
-                pos_matriz[po_k]["piezas"].append({
-                    "part_num": pn_r,
-                    "fecha": f_ent,
-                    "cantidad": cant_pz_num,
-                    "estados": lista_est_pz,
-                    "comentario_pz": str(reg.get("comentarios") or "").strip(),
-                    "es_ensamble": bool(reg.get("es_ensamble", False))
-                })
-
-            lista_pos_cols = [
-                k for k in sorted(list(pos_matriz.keys()))
-                if (not filtro_solo_prod or pos_matriz[k]["en_produccion"])
-                and (po_filtrada_sel == "-- Todas las POs --" or k == po_filtrada_sel)
-                and len(pos_matriz[k]["piezas"]) > 0
-            ]
-
-            # Leyenda lateral de Acciones
-            cfg_prod = ESTADOS_COLORES.get("Produccion", {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"})
-            filas_acciones = [
-                f'<div style="background-color:{cfg_prod["bg"]}; color:{cfg_prod["fg"]}; border:2px dashed {cfg_prod["border"]}; padding:5px 6px; margin-bottom:6px; border-radius:4px; font-size:11px; font-weight:bold; text-align:center;">🏷️ PO en Producción</div>'
-            ]
-            for accion, cfg in ESTADOS_COLORES.items():
-                if accion == "Produccion":
-                    continue
-                estilo_acc = f"background-color:{cfg['bg']}; color:{cfg['fg']}; border:1px solid {cfg['border']}; padding:4px 6px; margin-bottom:4px; border-radius:4px; font-size:11px; font-weight:600; text-align:center; white-space:nowrap;"
-                filas_acciones.append(f'<div style="{estilo_acc}">{accion}</div>')
-            html_acciones = "".join(filas_acciones)
-
-            # Construcción de columnas por cada PO
-            columnas_pos_html = []
-            for po_k in lista_pos_cols:
-                coment_po_k = pos_matriz[po_k]["comentario"]
-                esta_en_prod = pos_matriz[po_k]["en_produccion"]
-                piezas_col = pos_matriz[po_k]["piezas"]
-
-                bloques_piezas = []
-                for pz in piezas_col:
-                    ests_pz = pz["estados"]
-                    num_parte = pz["part_num"]
-                    fecha_pz = pz["fecha"]
-                    cant_pz = pz.get("cantidad", 1)
-                    es_ensamble_pz = pz.get("es_ensamble", False)
-                    icono_engrane = " ⚙️" if es_ensamble_pz else ""
-
-                    ests_relevantes = [e for e in ests_pz if e != "En proceso"] if len(ests_pz) > 1 else ests_pz
-                    if not ests_relevantes:
-                        ests_relevantes = ["En proceso"]
-
-                    if len(ests_relevantes) == 1:
-                        cfg_c = ESTADOS_COLORES.get(ests_relevantes[0], {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
-                        bg_style = f"background-color: {cfg_c['bg']}; color: {cfg_c['fg']}; border: 1.5px solid {cfg_c['border']};"
+            # --- FILTRO POR NÚMERO DE PO (FILA 3) ---
+            todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
+            opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
+    
+            col_po_filtro, col_po_btn = st.columns([3.5, 1.5])
+            with col_po_filtro:
+                po_filtrada_sel = st.selectbox(
+                    "🔍 Filtrar panorama por número de PO:",
+                    options=opciones_filtro_po,
+                    key="filtro_po_matriz",
+                    help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
+                )
+            with col_po_btn:
+                st.write("")
+                st.write("")
+                if po_filtrada_sel != "-- Todas las POs --":
+                    if st.button("Ir a editar esta PO ↗️", use_container_width=True):
+                        st.session_state.po_activa = po_filtrada_sel
+                        st.rerun()
+    
+            if res_todas:
+                pos_matriz = {}
+                clave_mes_filtro = mapa_etiqueta_clave.get(mes_seleccionado, None)
+    
+                for reg in res_todas:
+                    po_k = str(reg.get("po_number", "Sin PO")).strip()
+                    pn_r = str(reg.get("Part number", "-")).strip()
+                    f_ent = str(reg.get("fecha_entrega") or "Sin fecha").strip()
+                    cant_pz_num = reg.get("cantidad_solicitada") or reg.get("cantidad") or 1
+    
+                    if clave_mes_filtro:
+                        try:
+                            f_obj = pd.to_datetime(reg.get("fecha_entrega"))
+                            if f_obj.strftime("%Y-%m") != clave_mes_filtro:
+                                continue
+                        except Exception:
+                            continue
+    
+                    if po_k not in pos_matriz:
+                        pos_matriz[po_k] = {
+                            "comentario": reg.get("comentarios_po") or "",
+                            "en_produccion": bool(reg.get("po_en_produccion", False)),
+                            "piezas": []
+                        }
+                    if reg.get("po_en_produccion"):
+                        pos_matriz[po_k]["en_produccion"] = True
+    
+                    raw_ests = reg.get("estados_proceso")
+                    if isinstance(raw_ests, list) and len(raw_ests) > 0:
+                        lista_est_pz = [e for e in raw_ests if e != "Produccion"]
                     else:
-                        c1 = ESTADOS_COLORES.get(ests_relevantes[0], {}).get("bg", "#D9D9D9")
-                        c2 = ESTADOS_COLORES.get(ests_relevantes[1], {}).get("bg", "#F1C40F")
-                        cfg_main = ESTADOS_COLORES.get(ests_relevantes[0], {"fg": "#000000", "border": "#000000"})
-                        bg_style = f"background: repeating-linear-gradient(45deg, {c1}, {c1} 10px, {c2} 10px, {c2} 20px); color: {cfg_main['fg']}; border: 2px solid {cfg_main['border']};"
+                        st_ind = reg.get("estado_proceso") or "En proceso"
+                        lista_est_pz = [st_ind] if st_ind != "Produccion" else ["En proceso"]
+    
+                    if not lista_est_pz:
+                        lista_est_pz = ["En proceso"]
+    
+                    es_terminada = ("Terminada" in lista_est_pz)
+                    es_enviada = ("Enviado a cliente" in lista_est_pz)
+                    es_concluida = es_terminada or es_enviada
 
-                    tooltip_html_lines = [
-                        f"<b>⚙️ Pieza:</b> {num_parte}",
-                        f"<b>📦 Cantidad:</b> {cant_pz} pzs",
-                        f"<b>📅 Entrega:</b> {fecha_pz}",
-                        f"<b>🏷️ Estados:</b> {', '.join(ests_pz)}"
-                    ]
-                    if es_ensamble_pz:
-                        tooltip_html_lines.append("<b>⚙️ Ensamble:</b> Parte de un ensamble")
-                    if pz["comentario_pz"]:
-                        tooltip_html_lines.append(f"<b>💬 Nota Pieza:</b> {pz['comentario_pz']}")
+                    if filtro_ocultar_enviadas and es_enviada:
+                        continue
 
-                    contenido_tooltip = "<br>".join(tooltip_html_lines)
+                    if filtro_terminacion == "Solo pendientes (Ocultar terminadas)" and es_concluida:
+                        continue
+                    if filtro_terminacion == "Solo terminadas" and not es_terminada:
+                        continue
 
-                    celda_html = f'''<div class="custom-tooltip-wrapper" style="{bg_style} padding:7px 6px; margin-bottom:5px; border-radius:4px; font-size:15px; font-weight:bold; text-align:center; box-shadow:0 1px 2px rgba(0,0,0,0.08);">
-<span style="display:block; overflow:hidden; text-overflow:ellipsis;">{num_parte}{icono_engrane}</span>
-<div class="custom-tooltip-text">{contenido_tooltip}</div>
-</div>'''
-                    bloques_piezas.append(celda_html)
+                    if busqueda_pieza_filtro and (busqueda_pieza_filtro not in pn_r.lower()):
+                        continue
+    
+                    if filtro_categorias_sel:
+                        filtro_estados_sin_prod = [c for c in filtro_categorias_sel if c != "PO en Producción"]
+                        coincide_estado_pieza = any(c in lista_est_pz for c in filtro_estados_sin_prod)
+                        coincide_po_prod = ("PO en Producción" in filtro_categorias_sel and pos_matriz[po_k]["en_produccion"])
 
-                html_piezas = "".join(bloques_piezas)
+                        if filtro_estados_sin_prod and not coincide_estado_pieza:
+                            continue
+                        if not filtro_estados_sin_prod and not coincide_po_prod:
+                            continue
 
-                if esta_en_prod:
-                    bg_po_header = cfg_prod["bg"]
-                    fg_po_header = cfg_prod["fg"]
-                    border_po_header = f"2px dashed {cfg_prod['border']}"
-                else:
-                    bg_po_header = "#004A99"
-                    fg_po_header = "#FFFFFF"
-                    border_po_header = "1px solid #003366"
+                        # Asegurar la sangría correcta (alineada con los 'if' anteriores)
+                        pos_matriz[po_k]["piezas"].append({
+                            "part_num": pn_r,
+                            "fecha": f_ent,
+                            "cantidad": cant_pz_num,
+                            "estados": lista_est_pz,
+                            "comentario_pz": str(reg.get("comentarios") or "").strip(),
+                            "es_ensamble": bool(reg.get("es_ensamble", False))
+                        })
+        
+                lista_pos_cols = [
+                    k for k in sorted(list(pos_matriz.keys()))
+                    if (not filtro_solo_prod or pos_matriz[k]["en_produccion"])
+                    and (po_filtrada_sel == "-- Todas las POs --" or k == po_filtrada_sel)
+                    and len(pos_matriz[k]["piezas"]) > 0
+                ]
+    
+                cfg_prod = ESTADOS_COLORES.get("Produccion", {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"})
+                filas_acciones = [
+                    f'<div style="background-color:{cfg_prod["bg"]}; color:{cfg_prod["fg"]}; border:2px dashed {cfg_prod["border"]}; padding:5px 6px; margin-bottom:6px; border-radius:4px; font-size:11px; font-weight:bold; text-align:center;">🏷️ PO en Producción</div>'
+                ]
+    
+                for accion, cfg in ESTADOS_COLORES.items():
+                    if accion == "Produccion":
+                        continue
+                    estilo_acc = f"background-color:{cfg['bg']}; color:{cfg['fg']}; border:1px solid {cfg['border']}; padding:4px 6px; margin-bottom:4px; border-radius:4px; font-size:11px; font-weight:600; text-align:center; white-space:nowrap;"
+                    filas_acciones.append(f'<div style="{estilo_acc}">{accion}</div>')
+                html_acciones = "".join(filas_acciones)
+    
+                columnas_pos_html = []
+                for po_k in lista_pos_cols:
+                    coment_po_k = pos_matriz[po_k]["comentario"]
+                    esta_en_prod = pos_matriz[po_k]["en_produccion"]
+                    piezas_col = pos_matriz[po_k]["piezas"]
 
-                tooltip_po_header = ""
-                indicador_nota = ""
-                if coment_po_k:
-                    indicador_nota = " 📌"
-                    tooltip_po_header = f'''<div class="custom-tooltip-text" style="font-size:12px; font-weight:normal; text-align:left;">
+                    bloques_piezas = []
+                    for pz in piezas_col:
+                        ests_pz = pz["estados"]
+                        num_parte = pz["part_num"]
+                        fecha_pz = pz["fecha"]
+                        cant_pz = pz.get("cantidad", 1)
+
+                        ests_relevantes = [e for e in ests_pz if e != "En proceso"] if len(ests_pz) > 1 else ests_pz
+                        if not ests_relevantes:
+                            ests_relevantes = ["En proceso"]
+
+                        if len(ests_relevantes) == 1:
+                            cfg_c = ESTADOS_COLORES.get(ests_relevantes[0], {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
+                            bg_style = f"background-color: {cfg_c['bg']}; color: {cfg_c['fg']}; border: 1.5px solid {cfg_c['border']};"
+                        else:
+                            c1 = ESTADOS_COLORES.get(ests_relevantes[0], {}).get("bg", "#D9D9D9")
+                            c2 = ESTADOS_COLORES.get(ests_relevantes[1], {}).get("bg", "#F1C40F")
+                            cfg_main = ESTADOS_COLORES.get(ests_relevantes[0], {"fg": "#000000", "border": "#000000"})
+                            bg_style = f"background: repeating-linear-gradient(45deg, {c1}, {c1} 10px, {c2} 10px, {c2} 20px); color: {cfg_main['fg']}; border: 2px solid {cfg_main['border']};"
+
+                        # Comprobar si forma parte de un ensamble
+                        es_ensamble_pz = pz.get("es_ensamble", False)
+                        icono_ensamble = " 🧩" if es_ensamble_pz else ""
+                        
+                        # En la descripción del tooltip flotante:
+                        tooltip_html_lines = [
+                            f"<b>⚙️ Pieza:</b> {num_parte}",
+                            f"<b>📦 Cantidad:</b> {cant_pz} pzs",
+                            f"<b>📅 Entrega:</b> {fecha_pz}",
+                            f"<b>🏷️ Estados:</b> {', '.join(ests_pz)}"
+                        ]
+                        if es_ensamble_pz:
+                            tooltip_html_lines.append("<b>🧩 Ensamble:</b> Parte de un ensamble")
+                        if pz["comentario_pz"]:
+                            tooltip_html_lines.append(f"<b>💬 Nota Pieza:</b> {pz['comentario_pz']}")
+                        
+                        contenido_tooltip = "<br>".join(tooltip_html_lines)
+                        
+                        # En la celda visible:
+                        celda_html = f'''<div class="custom-tooltip-wrapper" style="{bg_style} padding:7px 6px; margin-bottom:5px; border-radius:4px; font-size:15px; font-weight:bold; text-align:center; box-shadow:0 1px 2px rgba(0,0,0,0.08);">
+                        <span style="display:block; overflow:hidden; text-overflow:ellipsis;">{num_parte}{icono_ensamble}</span>
+                        <div class="custom-tooltip-text">{contenido_tooltip}</div>
+                        </div>'''
+                        bloques_piezas.append(celda_html)
+
+                    html_piezas = "".join(bloques_piezas)
+
+                    if esta_en_prod:
+                        bg_po_header = cfg_prod["bg"]
+                        fg_po_header = cfg_prod["fg"]
+                        border_po_header = f"2px dashed {cfg_prod['border']}"
+                    else:
+                        bg_po_header = "#004A99"
+                        fg_po_header = "#FFFFFF"
+                        border_po_header = "1px solid #003366"
+
+                    tooltip_po_header = ""
+                    indicador_nota = ""
+                    if coment_po_k:
+                        indicador_nota = " 📌"
+                        tooltip_po_header = f'''<div class="custom-tooltip-text" style="font-size:12px; font-weight:normal; text-align:left;">
 <b>📌 Nota de la PO:</b><br>{coment_po_k}
 </div>'''
 
-                header_po_html = f'''<div class="custom-tooltip-wrapper" style="background-color:{bg_po_header}; color:{fg_po_header}; border:{border_po_header}; font-weight:bold; text-align:center; padding:8px 6px; border-radius:5px; margin-bottom:6px; font-size:16px; box-shadow:0 1px 3px rgba(0,0,0,0.12);">
+                    header_po_html = f'''<div class="custom-tooltip-wrapper" style="background-color:{bg_po_header}; color:{fg_po_header}; border:{border_po_header}; font-weight:bold; text-align:center; padding:8px 6px; border-radius:5px; margin-bottom:6px; font-size:16px; box-shadow:0 1px 3px rgba(0,0,0,0.12);">
 {po_k}{indicador_nota}
 {tooltip_po_header}
 </div>'''
 
-                col_html = f'''<td style="vertical-align:top; width:175px; min-width:175px;">
+                    col_html = f'''<td style="vertical-align:top; width:175px; min-width:175px;">
 {header_po_html}
 {html_piezas}
 </td>'''
-                columnas_pos_html.append(col_html)
+                    columnas_pos_html.append(col_html)
 
-            html_columnas_unidas = "".join(columnas_pos_html)
-
-            css_scroll = """<style>
+                html_columnas_unidas = "".join(columnas_pos_html)
+    
+                css_scroll = """<style>
 .matriz-scroll-container {
     overflow-x: scroll !important;
     overflow-y: visible !important;
@@ -1926,372 +1929,463 @@ elif rol == "Supervisor":
 }
 </style>"""
 
-            html_tablero = css_scroll + '<div class="matriz-scroll-container"><table style="border-collapse:separate; border-spacing:6px; font-family:\'Segoe UI\', Arial, sans-serif;"><tr><td class="columna-fija-acciones" style="vertical-align:top; width:160px; min-width:160px;"><div style="background-color:#374151; color:#FFFFFF; font-weight:bold; text-align:center; padding:8px 6px; border-radius:5px; margin-bottom:6px; font-size:16px;">Acciones</div>' + html_acciones + '</td>' + html_columnas_unidas + '</tr></table></div>'
-
-            st.markdown(html_tablero, unsafe_allow_html=True)
-        else:
-            st.info("No hay información de piezas registrada para mostrar en el tablero.")
-
-        st.divider()
-
-        # ===========================================
-        # SECCIÓN 1.5 : DESCARGAR REPORTE POR PO
-        # ===========================================
-        st.markdown("---")
-        st.subheader("REPORTE DE PO")
-
-        todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
-        opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
-
-        col_po_filtro, col_po_btn, col_po_pdf = st.columns([3.0, 1.2, 1.4])
-        with col_po_filtro:
-            po_filtrada_sel = st.selectbox(
-                "🔍 Filtrar panorama por número de PO:",
-                options=opciones_filtro_po,
-                key="filtro_po_reporte_pdf",
-                help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
-            )
-        with col_po_btn:
-            st.write("")
-            st.write("")
-            if po_filtrada_sel != "-- Todas las POs --":
-                if st.button("Ir a editar esta PO ↗️", use_container_width=True):
-                    st.session_state.po_activa = po_filtrada_sel
-                    st.rerun()
-
-        with col_po_pdf:
-            st.write("")
-            st.write("")
-            po_para_reporte = po_filtrada_sel if po_filtrada_sel != "-- Todas las POs --" else st.session_state.get("po_activa")
-            
-            if po_para_reporte and po_para_reporte in pos_matriz:
-                datos_po_sel = pos_matriz[po_para_reporte]
-                
-                pdf_bytes = generar_pdf_reporte_po(
-                    po_numero=po_para_reporte,
-                    piezas_lista=datos_po_sel.get("piezas", []),
-                    comentario_po=datos_po_sel.get("comentario", "")
-                )
-                
-                st.download_button(
-                    label="📄 Descargar PDF",
-                    data=pdf_bytes,
-                    file_name=f"Reporte_PO_{po_para_reporte}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
+              # Montaje del contenedor HTML sin sangrías para evitar bloques de código planos
+                html_tablero = (
+                    f"{css_scroll}\n"
+                    f'<div class="matriz-scroll-container">\n'
+                    f'<table style="border-collapse:separate; border-spacing:6px; font-family:\'Segoe UI\', Arial, sans-serif;">\n'
+                    f'<tr>\n'
+                    f'<td class="columna-fija-acciones" style="vertical-align:top; width:160px; min-width:160px;">\n'
+                    f'<div style="background-color:#374151; color:#FFFFFF; font-weight:bold; text-align:center; padding:8px 6px; border-radius:5px; margin-bottom:6px; font-size:16px;">Acciones</div>\n'
+                    f'{html_acciones}\n'
+                    f'</td>\n'
+                    f'{html_columnas_unidas}\n'
+                    f'</tr>\n'
+                    f'</table>\n'
+                    f'</div>'
                 )
 
-        # ==========================================
-        # SECCIÓN 2 (ABAJO): EDICIÓN Y GESTIÓN POR PO
-        # ==========================================
-        st.markdown("---")
-        st.subheader("🛠️ Modificación y Detalle por PO")
+                st.markdown(html_tablero, unsafe_allow_html=True)
 
-        idx_actual = lista_pos.index(st.session_state.po_activa) if st.session_state.po_activa in lista_pos else 0
+            # ===========================================
+            # SECCIÓN 1.5 : DESCARGAR REPORTE POR PO
+            # ===========================================
+            st.markdown("---")
+            st.subheader("REPORTE DE PO")
 
-        po_seleccionada = st.selectbox(
-            "Seleccione la PO a trabajar:",
-            options=lista_pos,
-            index=idx_actual,
-            key="sel_po_superv"
-        )
-        st.session_state.po_activa = po_seleccionada
-
-        res_piezas_po = (
-            supabase.table("piezas")
-            .select("*")
-            .eq("po_number", po_seleccionada)
-            .order("fecha_entrega")
-            .order("id")
-            .execute()
-            .data or []
-        )
-
-        comentario_po_val = ""
-        po_prod_val = False
-        for p_chk in res_piezas_po:
-            if p_chk.get("comentarios_po"):
-                comentario_po_val = p_chk.get("comentarios_po")
-            if p_chk.get("po_en_produccion"):
-                po_prod_val = True
-
-        c_po_tit, c_po_prod, c_po_input, c_po_btn = st.columns([1.8, 1.8, 3.4, 1.0])
-
-        with c_po_tit:
-            st.markdown(f"### 📦 PO: `{po_seleccionada}`")
-            st.caption(f"**Total partidas:** {len(res_piezas_po)}")
-
-        with c_po_prod:
-            nuevo_en_prod = st.checkbox(
-                "🏭 En Producción",
-                value=po_prod_val,
-                key=f"chk_prod_po_{po_seleccionada}",
-                help="Marca toda la orden de compra con la etiqueta de Producción"
-            )
-
-        with c_po_input:
-            nuevo_coment_po = st.text_input(
-                f"Comentario PO {po_seleccionada}:",
-                value=comentario_po_val,
-                placeholder="Ej. Entrega: 25-Nov / Falta material / Soldadura externa...",
-                key=f"txt_coment_po_{po_seleccionada}",
-                label_visibility="collapsed"
-            )
-
-        with c_po_btn:
-            if st.button("💾 Guardar PO", key=f"btn_save_po_{po_seleccionada}", use_container_width=True):
-                supabase.table("piezas").update({
-                    "comentarios_po": nuevo_coment_po.strip(),
-                    "po_en_produccion": nuevo_en_prod
-                }).eq("po_number", po_seleccionada).execute()
-
-                # Registro de auditoría
-                if nuevo_en_prod != po_prod_val:
-                    registrar_log_cambio(
-                        po_number=po_seleccionada,
-                        campo_editado="po_en_produccion",
-                        valor_anterior=str(po_prod_val),
-                        valor_nuevo=str(nuevo_en_prod),
-                        part_num="-",
-                        motivo=f"Cambio por {usuario_sup}"
-                    )
-                if nuevo_coment_po.strip() != comentario_po_val.strip():
-                    registrar_log_cambio(
-                        po_number=po_seleccionada,
-                        campo_editado="comentarios_po",
-                        valor_anterior=comentario_po_val,
-                        valor_nuevo=nuevo_coment_po.strip(),
-                        part_num="-",
-                        motivo=f"Nota PO editada por {usuario_sup}"
-                    )
-
-                st.toast(f"Estatus de PO {po_seleccionada} actualizado", icon="📦")
-                st.rerun()
-
-        pz_enfocada = st.session_state.get("pieza_enfoque", None)
-
-        for p in res_piezas_po:
-            id_pieza = p["id"]
-            part_num = p.get("Part number", "Sin N/P")
-            fecha_ent = p.get("fecha_entrega") or "Sin fecha"
-            cant_sol = p.get("cantidad_solicitada") or p.get("cantidad") or 1
-            coment_pieza_act = p.get("comentarios") or ""
-
-            es_foco = (pz_enfocada == str(part_num).strip())
-
-            raw_estados = p.get("estados_proceso")
-            if not raw_estados:
-                est_v = p.get("estado_proceso") or "En proceso"
-                estados_actuales = [est_v] if (est_v in LISTA_ESTADOS_PIEZAS) else ["En proceso"]
-            else:
-                estados_actuales = [e for e in raw_estados if e in LISTA_ESTADOS_PIEZAS]
-                if not estados_actuales:
-                    estados_actuales = ["En proceso"]
-
-            with st.container(border=True):
-                badges_html = []
-                for est in estados_actuales:
-                    info_col = ESTADOS_COLORES.get(est, {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
-                    badges_html.append(
-                        f"""<span style="
-                            display: inline-block;
-                            background-color: {info_col['bg']};
-                            color: {info_col['fg']};
-                            border: 2px solid {info_col['border']};
-                            padding: 7px 12px;
-                            margin: 3px 5px 3px 0px;
-                            border-radius: 6px;
-                            font-weight: 700;
-                            font-size: 13px;
-                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                        ">{est}</span>"""
-                    )
-                html_etiquetas = "".join(badges_html)
-
-                col_cab_info, col_cab_badges = st.columns([2.5, 7.5])
-                with col_cab_info:
-                    icono = "🎯 " if es_foco else "⚙️ "
-                    st.markdown(f"### {icono}`{part_num}`")
-                    st.caption(f"📅 **Entrega:** {fecha_ent} &nbsp;|&nbsp; 📦 **Cantidad:** {cant_sol} pzs")
-                with col_cab_badges:
-                    st.markdown(f"<div style='padding-top: 4px;'>{html_etiquetas}</div>", unsafe_allow_html=True)
-
+            todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
+            opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
+    
+            col_po_filtro, col_po_btn, col_po_pdf = st.columns([3.0, 1.2, 1.4])
+            with col_po_filtro:
+                po_filtrada_sel = st.selectbox(
+                    "🔍 Filtrar panorama por número de PO:",
+                    options=opciones_filtro_po,
+                    key="filtro_po_reporte_pdf",
+                    help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
+                )
+            with col_po_btn:
                 st.write("")
-
-                # 1. Leer el valor actual
-                es_ensamble_val = bool(p.get("es_ensamble", False))
-                
-                # 2. En las columnas de edición, agrega el checkbox (por ejemplo, redistribuyendo col_sel, col_coment, col_btn)
-                col_sel, col_coment, col_ensamble, col_btn = st.columns([4.2, 3.8, 1.2, 0.8])
-                
-                with col_sel:
-                    nuevos_estados = st.multiselect(
-                        "Editar etiquetas de la pieza:",
-                        options=LISTA_ESTADOS_PIEZAS,
-                        default=estados_actuales,
-                        key=f"multi_est_{id_pieza}",
-                        placeholder="Selecciona etiquetas..."
-                    )
-                
-                with col_coment:
-                    nuevo_coment_pz = st.text_input(
-                        "Comentario técnico:",
-                        value=coment_pieza_act,
-                        placeholder="Ej. Soldar con Argón / Dejar sobremedida...",
-                        key=f"txt_pz_{id_pieza}"
-                    )
-                
-                with col_ensamble:
-                    st.write("")
-                    st.write("")
-                    nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
-                
-                with col_btn:
-                    st.write("")
-                    st.write("")
-                    if st.button("💾", key=f"btn_save_pz_{id_pieza}", help=f"Guardar cambios en {part_num}", use_container_width=True):
-                        estados_finales = nuevos_estados if nuevos_estados else ["En proceso"]
-                        
-                        # Guardar en base de datos incluyendo 'es_ensamble'
-                        supabase.table("piezas").update({
-                            "estados_proceso": estados_finales,
-                            "estado_proceso": estados_finales[0],
-                            "comentarios": nuevo_coment_pz.strip(),
-                            "es_ensamble": nuevo_es_ensamble
-                        }).eq("id", id_pieza).execute()
-                
-                        # Registrar en la auditoría si cambió el estatus de ensamble
-                        if nuevo_es_ensamble != es_ensamble_val:
-                            registrar_log_cambio(
-                                po_number=po_seleccionada,
-                                campo_editado="es_ensamble",
-                                valor_anterior=str(es_ensamble_val),
-                                valor_nuevo=str(nuevo_es_ensamble),
-                                part_num=part_num,
-                                motivo=f"Marcado como ensamble por {usuario_sup}"
-                            )
-                
-                        st.session_state["pieza_enfoque"] = None
-                        st.toast(f"Pieza {part_num} actualizada", icon="✅")
+                st.write("")
+                if po_filtrada_sel != "-- Todas las POs --":
+                    if st.button("Ir a editar esta PO ↗️", use_container_width=True):
+                        st.session_state.po_activa = po_filtrada_sel
                         st.rerun()
 
-        # ==========================================================================
-        # PESTAÑA 2: REQUISICIONES DE MATERIAL
-        # ==========================================================================
-        with tab_reqs:
-            st.subheader("Gestión de Requisiciones de Taller")
-            try:
-                res_r = supabase.table("requisiciones").select("*").order("id", desc=True).execute()
-                requisiciones = res_r.data or []
+            with col_po_pdf:
+                st.write("")
+                st.write("")
+                po_para_reporte = po_filtrada_sel if po_filtrada_sel != "-- Todas las POs --" else st.session_state.get("po_activa")
+                
+                if po_para_reporte and po_para_reporte in pos_matriz:
+                    datos_po_sel = pos_matriz[po_para_reporte]
+                    
+                    pdf_bytes = generar_pdf_reporte_po(
+                        po_numero=po_para_reporte,
+                        piezas_lista=datos_po_sel.get("piezas", []),
+                        comentario_po=datos_po_sel.get("comentario", "")
+                    )
+                    
+                    st.download_button(
+                        label="📄 Descargar PDF",
+                        data=pdf_bytes,
+                        file_name=f"Reporte_PO_{po_para_reporte}.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
     
-                if requisiciones:
-                    for req in requisiciones:
-                        id_req = req.get("id")
-                        num_req = req.get("num_req", f"REQ-{id_req}")
-                        solicita = req.get("solicitante", "No indicado")
-                        fecha_r = req.get("fecha_solicitud", "Sin fecha")
-                        estado_r = req.get("estado", "Pendiente")
-                        items = req.get("items") or []
+            # ==========================================
+            # SECCIÓN 2 (ABAJO): EDICIÓN Y GESTIÓN POR PO
+            # ==========================================
+            st.markdown("---")
+            st.subheader("🛠️ Modificación y Detalle por PO")
     
-                        with st.expander(f"📋 {num_req} - {solicita} ({estado_r}) - {fecha_r}"):
-                            st.write(f"**Solicitante:** {solicita} | **Fecha:** {fecha_r}")
-                            st.write(f"**Estado actual:** {estado_r}")
+            idx_actual = lista_pos.index(st.session_state.po_activa) if st.session_state.po_activa in lista_pos else 0
     
-                            if items and isinstance(items, list):
-                                st.table(items)
-                            else:
-                                st.caption("Sin elementos detallados en la requisición.")
+            po_seleccionada = st.selectbox(
+                "Seleccione la PO a trabajar:",
+                options=lista_pos,
+                index=idx_actual,
+                key="sel_po_superv"
+            )
+            st.session_state.po_activa = po_seleccionada
     
-                            c_a1, c_a2 = st.columns([1, 1])
-                            with c_a1:
-                                if st.button("Aprobar Requisición", key=f"btn_aprob_{id_req}"):
-                                    supabase.table("requisiciones").update({"estado": "Aprobada"}).eq("id", id_req).execute()
-                                    registrar_log_cambio(
-                                        po_number=num_req,
-                                        campo_editado="estado_requisicion",
-                                        valor_anterior=estado_r,
-                                        valor_nuevo="Aprobada",
-                                        part_num="-",
-                                        motivo=f"Aprobada por {usuario_sup}"
-                                    )
-                                    st.success("Requisición aprobada.")
-                                    st.rerun()
-                            with c_a2:
-                                if st.button("Rechazar Requisición", key=f"btn_rech_{id_req}"):
-                                    supabase.table("requisiciones").update({"estado": "Rechazada"}).eq("id", id_req).execute()
-                                    registrar_log_cambio(
-                                        po_number=num_req,
-                                        campo_editado="estado_requisicion",
-                                        valor_anterior=estado_r,
-                                        valor_nuevo="Rechazada",
-                                        part_num="-",
-                                        motivo=f"Rechazada por {usuario_sup}"
-                                    )
-                                    st.warning("Requisición marcada como rechazada.")
-                                    st.rerun()
+            res_piezas_po = (
+                supabase.table("piezas")
+                .select("*")
+                .eq("po_number", po_seleccionada)
+                .order("fecha_entrega")
+                .order("id")
+                .execute()
+                .data or []
+            )
+    
+            comentario_po_val = ""
+            po_prod_val = False
+            for p_chk in res_piezas_po:
+                if p_chk.get("comentarios_po"):
+                    comentario_po_val = p_chk.get("comentarios_po")
+                if p_chk.get("po_en_produccion"):
+                    po_prod_val = True
+    
+            c_po_tit, c_po_prod, c_po_input, c_po_btn = st.columns([1.8, 1.8, 3.4, 1.0])
+    
+            with c_po_tit:
+                st.markdown(f"### 📦 PO: `{po_seleccionada}`")
+                st.caption(f"**Total partidas:** {len(res_piezas_po)}")
+    
+            with c_po_prod:
+                nuevo_en_prod = st.checkbox(
+                    "🏭 En Producción",
+                    value=po_prod_val,
+                    key=f"chk_prod_po_{po_seleccionada}",
+                    help="Marca toda la orden de compra con la etiqueta de Producción"
+                )
+    
+            with c_po_input:
+                nuevo_coment_po = st.text_input(
+                    f"Comentario PO {po_seleccionada}:",
+                    value=comentario_po_val,
+                    placeholder="Ej. Entrega: 25-Nov / Falta material / Soldadura externa...",
+                    key=f"txt_coment_po_{po_seleccionada}",
+                    label_visibility="collapsed"
+                )
+    
+            with c_po_btn:
+                if st.button("💾 Guardar PO", key=f"btn_save_po_{po_seleccionada}", use_container_width=True):
+                    supabase.table("piezas").update({
+                        "comentarios_po": nuevo_coment_po.strip(),
+                        "po_en_produccion": nuevo_en_prod
+                    }).eq("po_number", po_seleccionada).execute()
+
+                    # Registro de auditoría
+                    if nuevo_en_prod != po_prod_val:
+                        registrar_log_cambio(
+                            po_number=po_seleccionada,
+                            campo_editado="po_en_produccion",
+                            valor_anterior=str(po_prod_val),
+                            valor_nuevo=str(nuevo_en_prod),
+                            part_num="-",
+                            motivo=f"Cambio por {usuario_sup}"
+                        )
+                    if nuevo_coment_po.strip() != comentario_po_val.strip():
+                        registrar_log_cambio(
+                            po_number=po_seleccionada,
+                            campo_editado="comentarios_po",
+                            valor_anterior=comentario_po_val,
+                            valor_nuevo=nuevo_coment_po.strip(),
+                            part_num="-",
+                            motivo=f"Nota PO editada por {usuario_sup}"
+                        )
+
+                    st.toast(f"Estatus de PO {po_seleccionada} actualizado", icon="📦")
+                    st.rerun()
+    
+            pz_enfocada = st.session_state.get("pieza_enfoque", None)
+    
+            for p in res_piezas_po:
+                id_pieza = p["id"]
+                part_num = p.get("Part number", "Sin N/P")
+                fecha_ent = p.get("fecha_entrega") or "Sin fecha"
+                cant_sol = p.get("cantidad_solicitada") or p.get("cantidad") or 1
+                coment_pieza_act = p.get("comentarios") or ""
+    
+                es_foco = (pz_enfocada == str(part_num).strip())
+    
+                raw_estados = p.get("estados_proceso")
+                if not raw_estados:
+                    est_v = p.get("estado_proceso") or "En proceso"
+                    estados_actuales = [est_v] if (est_v in LISTA_ESTADOS_PIEZAS) else ["En proceso"]
                 else:
-                    st.info("No hay requisiciones pendientes o archivadas.")
-            except Exception as e_req:
-                st.info("El módulo de requisiciones no tiene registros disponibles en este momento.")
+                    estados_actuales = [e for e in raw_estados if e in LISTA_ESTADOS_PIEZAS]
+                    if not estados_actuales:
+                        estados_actuales = ["En proceso"]
     
-        # ==========================================================================
-        # PESTAÑA 3: DESCARGA CENTRALIZADA DE BITÁCORAS (PDF)
-        # ==========================================================================
-        with tab_historial_pdf:
-            st.subheader("📥 Exportación de Bitácoras de Auditoría")
-            st.write("Genera los reportes oficiales en PDF con formato horizontal y registro horario local (UTC-6).")
-    
-            col_sup_box, col_maq_box = st.columns(2)
-    
-            # 1. Bitácora de Supervisión
-            with col_sup_box:
                 with st.container(border=True):
-                    st.markdown("#### 📋 Bitácora de Supervisión")
-                    st.caption("Cambios de estatus de POs, piezas, ensamble y validación de requisiciones.")
+                    badges_html = []
+                    for est in estados_actuales:
+                        info_col = ESTADOS_COLORES.get(est, {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
+                        badges_html.append(
+                            f"""<span style="
+                                display: inline-block;
+                                background-color: {info_col['bg']};
+                                color: {info_col['fg']};
+                                border: 2px solid {info_col['border']};
+                                padding: 7px 12px;
+                                margin: 3px 5px 3px 0px;
+                                border-radius: 6px;
+                                font-weight: 700;
+                                font-size: 13px;
+                                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                            ">{est}</span>"""
+                        )
+                    html_etiquetas = "".join(badges_html)
     
-                    try:
-                        res_sup = supabase.table("historial_cambios").select("*").execute()
-                        logs_sup = res_sup.data or []
-                        if logs_sup:
-                            logs_sup_ord = sorted(logs_sup, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
-                            pdf_bytes_sup = generar_pdf_historial_cambios(logs_sup_ord)
-                            st.download_button(
-                                label="📄 Descargar Bitácora de Supervisión (PDF)",
-                                data=pdf_bytes_sup,
-                                file_name=f"Bitacora_Supervision_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                                mime="application/pdf",
-                                use_container_width=True
-                            )
-                            st.caption(f"Registros disponibles: **{len(logs_sup_ord)}** eventos.")
-                        else:
-                            st.info("Sin registros en la bitácora de supervisión.")
-                    except Exception as e_sup:
-                        st.warning(f"Error al leer bitácora de supervisión: {e_sup}")
+                    col_cab_info, col_cab_badges = st.columns([2.5, 7.5])
+                    with col_cab_info:
+                        icono = "🎯 " if es_foco else "⚙️ "
+                        st.markdown(f"### {icono}`{part_num}`")
+                        st.caption(f"📅 **Entrega:** {fecha_ent} &nbsp;|&nbsp; 📦 **Cantidad:** {cant_sol} pzs")
+                    with col_cab_badges:
+                        st.markdown(f"<div style='padding-top: 4px;'>{html_etiquetas}</div>", unsafe_allow_html=True)
     
-            # 2. Bitácora de Maquinistas
-            with col_maq_box:
-                with st.container(border=True):
-                    st.markdown("#### 🛠️ Bitácora de Maquinistas")
-                    st.caption("Herramientas agregadas/removidas, material y piezas terminadas.")
+                    st.write("")
     
-                    try:
-                        res_maq = supabase.table("historial_maquinistas").select("*").execute()
-                        logs_maq = res_maq.data or []
-                        if logs_maq:
-                            logs_maq_ord = sorted(logs_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
-                            pdf_bytes_maq = generar_pdf_historial_maquinistas(logs_maq_ord)
-                            st.download_button(
-                                label="📄 Descargar Bitácora de Maquinistas (PDF)",
-                                data=pdf_bytes_maq,
-                                file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                                mime="application/pdf",
-                                use_container_width=True
-                            )
-                            st.caption(f"Registros disponibles: **{len(logs_maq_ord)}** eventos.")
-                        else:
-                            st.info("Sin registros en la bitácora de maquinistas.")
-                    except Exception as e_maq:
-                        st.warning(f"Error al leer bitácora de maquinistas: {e_maq}")
+                    # 1. Leer el valor actual
+                    es_ensamble_val = bool(p.get("es_ensamble", False))
+                    
+                    # 2. En las columnas de edición, agrega el checkbox (por ejemplo, redistribuyendo col_sel, col_coment, col_btn)
+                    col_sel, col_coment, col_ensamble, col_btn = st.columns([4.2, 3.8, 1.2, 0.8])
+                    
+                    with col_sel:
+                        nuevos_estados = st.multiselect(
+                            "Editar etiquetas de la pieza:",
+                            options=LISTA_ESTADOS_PIEZAS,
+                            default=estados_actuales,
+                            key=f"multi_est_{id_pieza}",
+                            placeholder="Selecciona etiquetas..."
+                        )
+                    
+                    with col_coment:
+                        nuevo_coment_pz = st.text_input(
+                            "Comentario técnico:",
+                            value=coment_pieza_act,
+                            placeholder="Ej. Soldar con Argón / Dejar sobremedida...",
+                            key=f"txt_pz_{id_pieza}"
+                        )
+                    
+                    with col_ensamble:
+                        st.write("")
+                        st.write("")
+                        nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
+                    
+                    with col_btn:
+                        st.write("")
+                        st.write("")
+                        if st.button("💾", key=f"btn_save_pz_{id_pieza}", help=f"Guardar cambios en {part_num}", use_container_width=True):
+                            estados_finales = nuevos_estados if nuevos_estados else ["En proceso"]
+                            
+                            # Guardar en base de datos incluyendo 'es_ensamble'
+                            supabase.table("piezas").update({
+                                "estados_proceso": estados_finales,
+                                "estado_proceso": estados_finales[0],
+                                "comentarios": nuevo_coment_pz.strip(),
+                                "es_ensamble": nuevo_es_ensamble
+                            }).eq("id", id_pieza).execute()
+                    
+                            # Registrar en la auditoría si cambió el estatus de ensamble
+                            if nuevo_es_ensamble != es_ensamble_val:
+                                registrar_log_cambio(
+                                    po_number=po_seleccionada,
+                                    campo_editado="es_ensamble",
+                                    valor_anterior=str(es_ensamble_val),
+                                    valor_nuevo=str(nuevo_es_ensamble),
+                                    part_num=part_num,
+                                    motivo=f"Marcado como ensamble por {usuario_sup}"
+                                )
+                    
+                            st.session_state["pieza_enfoque"] = None
+                            st.toast(f"Pieza {part_num} actualizada", icon="✅")
+                            st.rerun()
+
+    # ==========================================
+    # PESTAÑA 2: REQUISICIONES
+    # ==========================================
+    with tab_req:
+        st.subheader("📬 Validación de Requisiciones de Almacén")
+    
+        try:
+            res_req_sup = supabase.table("requisiciones_atlas").select("*").eq("estatus", "Enviada").execute()
+            reqs_pendientes = res_req_sup.data or []
+    
+            if reqs_pendientes:
+                pos_con_req = sorted(list(set(str(r["po_number"]).strip() for r in reqs_pendientes if r.get("po_number"))))
+                po_req_sel = st.selectbox("Seleccione la Requisición / PO a dictaminar:", pos_con_req, key="sup_po_req_select")
+    
+                items_a_revisar = [r for r in reqs_pendientes if str(r["po_number"]).strip() == po_req_sel]
+                df_rev = pd.DataFrame(items_a_revisar)
+    
+                st.markdown(f"##### Partidas solicitadas para la PO: {po_req_sel}")
+                cols_r_show = ["id", "tipo", "descripcion", "medida", "cantidad", "unidad", "urgencia", "motivo_uso", "solicitante", "link"]
+                st.dataframe(df_rev[[c for c in cols_r_show if c in df_rev.columns]], use_container_width=True, hide_index=True)
+    
+                c_dict1, c_dict2 = st.columns(2)
+    
+                # ACCIÓN 1: RECHAZAR PARTIDA ESPECÍFICA O TODAS
+                with c_dict1:
+                    with st.expander("❌ Rechazar Partida Específica o Requisición", expanded=False):
+                        st.markdown("Indica qué ítem requiere corrección por Inventarios:")
+                        
+                        opciones_items_rechazo = {
+                            "⚠️ Rechazar TODA la requisición (todas las partidas)": "TODAS"
+                        }
+                        for it in items_a_revisar:
+                            opciones_items_rechazo[f"ID {it['id']} - {it.get('descripcion')} ({it.get('medida', '')})"] = it['id']
+    
+                        item_a_rechazar = st.selectbox(
+                            "Partida a devolver a Inventarios:", 
+                            list(opciones_items_rechazo.keys()),
+                            key=f"sel_rechazo_{po_req_sel}"
+                        )
+                        id_seleccionado = opciones_items_rechazo[item_a_rechazar]
+    
+                        motivo_rechazo = st.text_area(
+                            "Motivo de corrección para Almacén:",
+                            placeholder="Ej. Medida de cortador errónea, material agotado con proveedor...",
+                            key=f"txt_motivo_{po_req_sel}"
+                        )
+    
+                        if st.button("Devolver para Corrección", type="secondary", key=f"btn_dev_{po_req_sel}"):
+                            if not motivo_rechazo.strip():
+                                st.error("⚠️ Especifica el motivo del rechazo para que Inventarios sepa qué cambiar.")
+                            else:
+                                if id_seleccionado == "TODAS":
+                                    supabase.table("requisiciones_atlas").update({
+                                        "estatus": "Rechazada",
+                                        "comentarios_supervisor": motivo_rechazo.strip()
+                                    }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
+
+                                    registrar_log_cambio(
+                                        po_number=po_req_sel,
+                                        campo_editado="requisicion",
+                                        valor_anterior="Enviada",
+                                        valor_nuevo="Rechazada (Todas)",
+                                        part_num="-",
+                                        motivo=f"Rechazada por {usuario_sup}: {motivo_rechazo.strip()}"
+                                    )
+                                    st.warning(f"Se rechazaron todas las partidas de la PO {po_req_sel}.")
+                                else:
+                                    supabase.table("requisiciones_atlas").update({
+                                        "estatus": "Rechazada",
+                                        "comentarios_supervisor": motivo_rechazo.strip()
+                                    }).eq("id", id_seleccionado).execute()
+
+                                    registrar_log_cambio(
+                                        po_number=po_req_sel,
+                                        campo_editado="requisicion_partida",
+                                        valor_anterior="Enviada",
+                                        valor_nuevo=f"Rechazada ID {id_seleccionado}",
+                                        part_num="-",
+                                        motivo=f"Devuelto por {usuario_sup}: {motivo_rechazo.strip()}"
+                                    )
+                                    st.warning(f"Partida ID {id_seleccionado} devuelta a Inventarios con la observación asignada.")
+                                st.rerun()
+    
+                # ACCIÓN 2: APROBAR Y MANDAR CORREO CON PDF A GERENCIA
+                with c_dict2:
+                    with st.expander("✅ Aprobar y Notificar por Correo", expanded=True):
+                        default_to = st.secrets.get("REQUISICION_TO", "ericslosberg@gmail.com")
+                        default_cc = st.secrets.get("REQUISICION_CC", "shirsa.produccion@nae-supply.com, juan.rodriguez@nae-supply.com, diseno.dos.shirsa@nae-supply.com, soporte@nae-supply.com")
+    
+                        c_mail1, c_mail2 = st.columns(2)
+                        with c_mail1:
+                            input_to = st.text_input("Para (Destinatarios principales):", value=default_to, key=f"to_{po_req_sel}")
+                        with c_mail2:
+                            input_cc = st.text_input("CC (En copia):", value=default_cc, key=f"cc_{po_req_sel}")
+    
+                        pdf_bytes_req = generar_pdf_requisicion(po_req_sel, items_a_revisar)
+    
+                        st.download_button(
+                            label="📄 Descargar PDF de la Requisición",
+                            data=pdf_bytes_req,
+                            file_name=f"Requisicion_PO_{po_req_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_{po_req_sel}"
+                        )
+    
+                        st.write("")
+                        if st.button("🚀 Aprobar Requisición y Enviar Email", type="primary", key=f"btn_aprob_{po_req_sel}"):
+                            if not input_to.strip():
+                                st.error("⚠️ Debe haber al menos un correo en el campo 'Para'.")
+                            else:
+                                with st.spinner("Enviando correo con PDF adjunto..."):
+                                    try:
+                                        enviar_correo_gerente(po_req_sel, pdf_bytes_req, input_to.strip(), input_cc.strip())
+    
+                                        supabase.table("requisiciones_atlas").update({
+                                            "estatus": "Aprobada",
+                                            "comentarios_supervisor": f"Aprobada por {usuario_sup} el {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                                        }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
+
+                                        registrar_log_cambio(po_number=po_req_sel,
+                                            campo_editado="requisicion",
+                                            valor_anterior="Enviada",
+                                            valor_nuevo="Aprobada",
+                                            part_num="-",
+                                            motivo=f"Aprobada y enviada a compras por {usuario_sup}"
+                                        )
+    
+                                        st.success(f"✅ Requisición de la PO {po_req_sel} aprobada y enviada a los destinatarios.")
+                                        st.rerun()
+                                    except Exception as e_envio:
+                                        st.error(f"Error al enviar correo: {e_envio}")
+            else:
+                st.info("No hay requisiciones pendientes de validación en este momento.")
+    
+        except Exception as e_r_sup:
+            st.error(f"Error en validación de requisiciones: {e_r_sup}")
+
+# ==========================================
+    # PESTAÑA: DESCARGA DE HISTORIALES (PDF)
+    # ==========================================
+    with tab_historial_pdf:
+        st.subheader("📥 Exportación de Bitácoras de Auditoría")
+        
+        col_sup_box, col_maq_box = st.columns(2)
+
+        # 1. BITÁCORA DE SUPERVISORES
+        with col_sup_box:
+            with st.container(border=True):
+                st.markdown("#### 📋 Bitácora de Supervisión")
+                st.caption("Cambios de estatus de POs, piezas y validación de requisiciones.")
+
+                try:
+                    res_sup = supabase.table("historial_cambios").select("*").execute()
+                    logs_sup = res_sup.data or []
+                    if logs_sup:
+                        logs_sup_ord = sorted(logs_sup, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_sup = generar_pdf_historial_cambios(logs_sup_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Supervisión (PDF)",
+                            data=pdf_bytes_sup,
+                            file_name=f"Bitacora_Supervision_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_sup_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de supervisión.")
+                except Exception as e_sup:
+                    st.warning(f"Error al leer bitácora de supervisión: {e_sup}")
+
+        # 2. BITÁCORA DE MAQUINISTAS
+        with col_maq_box:
+            with st.container(border=True):
+                st.markdown("#### 🛠️ Bitácora de Maquinistas")
+                st.caption("Herramientas agregadas/removidas, material y piezas terminadas.")
+
+                try:
+                    res_maq = supabase.table("historial_maquinistas").select("*").execute()
+                    logs_maq = res_maq.data or []
+                    if logs_maq:
+                        logs_maq_ord = sorted(logs_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_maq = generar_pdf_historial_maquinistas(logs_maq_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Maquinistas (PDF)",
+                            data=pdf_bytes_maq,
+                            file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_maq_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de maquinistas.")
+                except Exception as e_maq:
+                    st.warning(f"Error al leer bitácora de maquinistas: {e_maq}")
+
+
+
+
 # ==========================================
 # VENTANA 5: GERENTE (DASHBOARD GENERAL)
 # ==========================================   
