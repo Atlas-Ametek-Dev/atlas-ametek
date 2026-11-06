@@ -266,42 +266,55 @@ Sistema de Control y Gestión Atlas - Shirsa Maquinados
 
 @st.cache_data(ttl=600, show_spinner=False)
 
+# ==============================================================================
+#      1. BITÁCORA DE SUPERVISORES (PDF HORIZONTAL CON HORA LOCAL)
+# ==============================================================================
 def generar_pdf_historial_cambios(registros):
-    """Genera un reporte PDF formal en orientación horizontal con la bitácora de cambios."""
+    """Genera un reporte PDF formal de la bitácora de supervisión con hora local."""
     pdf = FPDF(orientation="L", unit="mm", format="Letter")
-    pdf.set_auto_page_break(auto=True, margin=15)
-    pdf.set_margins(left=12, top=12, right=12)
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.set_margins(left=10, top=10, right=10)
     pdf.add_page()
 
-    # Encabezado
-    pdf.set_font("Helvetica", "B", 16)
+    # Título principal
+    pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(0, 74, 153)
-    pdf.cell(0, 8, "HISTORIAL Y BITACORA DE MODIFICACIONES - ATLAS", ln=True, align="C")
+    pdf.cell(0, 7, "HISTORIAL Y BITACORA DE MODIFICACIONES - ATLAS", ln=True, align="C")
+
+    # Hora de emisión en tiempo local de México (UTC-6)
+    try:
+        hora_emision = pd.Timestamp.now(tz="America/Monterrey").strftime("%d/%m/%Y %H:%M:%S")
+    except Exception:
+        hora_emision = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 6, f"Fecha de emision: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", ln=True, align="C")
-    pdf.ln(4)
+    pdf.cell(0, 5, f"Fecha de emision: {hora_emision}", ln=True, align="C")
+    pdf.ln(3)
 
-    w_cols = [38, 28, 22, 28, 35, 48, 48]
+    # Anchos calculados exactamente para Letter horizontal (Suma = 258 mm)
+    w_cols = [34, 25, 22, 26, 35, 58, 58]
     encabezados = ["Fecha / Hora", "Supervisor", "Rol", "PO", "Campo", "Valor Anterior", "Valor Nuevo"]
 
-    def dibujar_encabezado():
+    def dibujar_encabezado_sup():
         pdf.set_fill_color(0, 74, 153)
         pdf.set_text_color(255, 255, 255)
-        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_font("Helvetica", "B", 8)
         for i, enc in enumerate(encabezados):
             pdf.cell(w_cols[i], 7, enc, border=1, ln=(1 if i == len(encabezados) - 1 else 0), align="C", fill=True)
-        pdf.set_font("Helvetica", "", 8)
+        pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(30, 30, 30)
 
-    dibujar_encabezado()
+    dibujar_encabezado_sup()
+    alto_linea = 4.0
 
-    alto_linea = 4.2
     for reg in registros:
         fecha_raw = str(reg.get("fecha_hora", ""))
         try:
-            fecha_txt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+            dt = pd.to_datetime(fecha_raw)
+            if dt.tz is None:
+                dt = dt.tz_localize("UTC")
+            fecha_txt = dt.tz_convert("America/Monterrey").strftime("%d/%m/%Y %H:%M")
         except Exception:
             fecha_txt = fecha_raw[:16]
 
@@ -315,26 +328,27 @@ def generar_pdf_historial_cambios(registros):
             str(reg.get("valor_nuevo", "-"))
         ]
 
+        # Cálculo dinámico de altura para celdas multilinea
         lineas_celdas = []
         for i, val in enumerate(valores):
             ancho_t = pdf.get_string_width(val)
             num_lineas = max(int(ancho_t / max(w_cols[i] - 3, 1)) + 1, len(val.split("\n")), 1)
             lineas_celdas.append(num_lineas)
 
-        altura_fila = max(max(lineas_celdas) * alto_linea + 2, 6.5)
+        altura_fila = max(max(lineas_celdas) * alto_linea + 3, 7.0)
 
         if pdf.get_y() + altura_fila > pdf.page_break_trigger:
             pdf.add_page()
-            dibujar_encabezado()
+            dibujar_encabezado_sup()
 
         pos_x_inicio = pdf.get_x()
         pos_y_inicio = pdf.get_y()
 
         for i, val in enumerate(valores):
             pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
-            pdf.set_xy(pos_x_inicio, pos_y_inicio + 1)
+            pdf.set_xy(pos_x_inicio + 1, pos_y_inicio + 1.2)
             alineacion = "C" if i in [0, 1, 2, 3] else "L"
-            pdf.multi_cell(w_cols[i], alto_linea, val, border=0, align=alineacion)
+            pdf.multi_cell(w_cols[i] - 2, alto_linea, val, border=0, align=alineacion)
             pos_x_inicio += w_cols[i]
 
         pdf.set_xy(pdf.l_margin, pos_y_inicio + altura_fila)
@@ -344,49 +358,12 @@ def generar_pdf_historial_cambios(registros):
         return salida.encode("latin-1", errors="replace")
     return bytes(salida)
 
-def registrar_log_cambio(po_number, campo_editado, valor_anterior, valor_nuevo, part_num="-", motivo=""):
-    """Inserta una entrada en la tabla historial_cambios de Supabase."""
-    try:
-        # Priorizar el supervisor activo en turno
-        usr = st.session_state.get("supervisor_activo") or st.session_state.get("usuario_actual") or "Supervisor"
-        r_actual = st.session_state.get("rol_actual", "Supervisor")
 
-        data = {
-            "usuario": str(usr),
-            "rol": str(r_actual),
-            "po_number": str(po_number),
-            "part_num": str(part_num) if part_num else "-",
-            "campo_editado": str(campo_editado),
-            "valor_anterior": str(valor_anterior) if valor_anterior is not None else "",
-            "valor_nuevo": str(valor_nuevo) if valor_nuevo is not None else "",
-            "motivo": str(motivo) if motivo else ""
-        }
-        res = supabase.table("historial_cambios").insert(data).execute()
-        return res
-    except Exception as e:
-        st.error(f"⚠️ Error al guardar en bitácora de auditoría: {e}")
-        return None
-
-def registrar_log_maquinista(po_number, part_num, tipo_accion, agregadas="", removidas="", detalle="", notas=""):
-    """Registra una entrada en la tabla independiente historial_maquinistas."""
-    try:
-        maq = st.session_state.get("maquinista_activo") or "Maquinista"
-        data = {
-            "maquinista": str(maq),
-            "po_number": str(po_number),
-            "part_num": str(part_num) if part_num else "-",
-            "tipo_accion": str(tipo_accion),
-            "herramientas_agregadas": str(agregadas) if agregadas else "-",
-            "herramientas_removidas": str(removidas) if removidas else "-",
-            "detalle_general": str(detalle) if detalle else "-",
-            "notas": str(notas) if notas else "-"
-        }
-        supabase.table("historial_maquinistas").insert(data).execute()
-    except Exception as e:
-        st.error(f"⚠️ Error al auditar acción del maquinista: {e}")
-
+# ==============================================================================
+#      2. BITÁCORA DE MAQUINISTAS (PDF HORIZONTAL CON HORA LOCAL)
+# ==============================================================================
 def generar_pdf_historial_maquinistas(registros):
-    """Genera el reporte PDF en formato horizontal para bitácora de taller."""
+    """Genera el reporte PDF en formato horizontal para bitácora de taller sin desbordes."""
     pdf = FPDF(orientation="L", unit="mm", format="Letter")
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.set_margins(left=10, top=10, right=10)
@@ -396,15 +373,22 @@ def generar_pdf_historial_maquinistas(registros):
     pdf.set_text_color(0, 74, 153)
     pdf.cell(0, 7, "BITACORA DE TRABAJO Y HERRAMENTAL - MAQUINISTAS", ln=True, align="C")
 
+    # Hora actual convertida a hora local de México
+    try:
+        hora_emision = pd.Timestamp.now(tz="America/Monterrey").strftime("%d/%m/%Y %H:%M:%S")
+    except Exception:
+        hora_emision = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
     pdf.set_font("Helvetica", "", 9)
     pdf.set_text_color(100, 100, 100)
-    pdf.cell(0, 5, f"Fecha de emision: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", ln=True, align="C")
+    pdf.cell(0, 5, f"Fecha de emision: {hora_emision}", ln=True, align="C")
     pdf.ln(3)
 
-    w_cols = [32, 25, 22, 28, 30, 42, 42, 38]
+    # Anchos ajustados para entrar perfectamente en 258 mm
+    w_cols = [34, 24, 20, 26, 32, 40, 40, 42]
     encabezados = ["Fecha / Hora", "Maquinista", "PO", "Parte", "Acción", "Herr. Agregadas", "Herr. Removidas", "Detalles / Notas"]
 
-    def dibujar_encabezado():
+    def dibujar_encabezado_maq():
         pdf.set_fill_color(0, 74, 153)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Helvetica", "B", 8)
@@ -413,13 +397,17 @@ def generar_pdf_historial_maquinistas(registros):
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(30, 30, 30)
 
-    dibujar_encabezado()
+    dibujar_encabezado_maq()
     alto_linea = 4.0
 
     for reg in registros:
         fecha_raw = str(reg.get("fecha_hora", ""))
         try:
-            fecha_txt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+            # Conversión explícita de UTC a hora local (UTC-6)
+            dt = pd.to_datetime(fecha_raw)
+            if dt.tz is None:
+                dt = dt.tz_localize("UTC")
+            fecha_txt = dt.tz_convert("America/Monterrey").strftime("%d/%m/%Y %H:%M")
         except Exception:
             fecha_txt = fecha_raw[:16]
 
@@ -434,26 +422,28 @@ def generar_pdf_historial_maquinistas(registros):
             f"{reg.get('detalle_general', '')} | {reg.get('notas', '')}".strip(" |")
         ]
 
+        # Calcular número de renglones necesarios según el contenido
         lineas_celdas = []
         for i, val in enumerate(valores):
             ancho_t = pdf.get_string_width(val)
-            num_lineas = max(int(ancho_t / max(w_cols[i] - 2, 1)) + 1, len(val.split("\n")), 1)
+            num_lineas = max(int(ancho_t / max(w_cols[i] - 3, 1)) + 1, len(val.split("\n")), 1)
             lineas_celdas.append(num_lineas)
 
-        altura_fila = max(max(lineas_celdas) * alto_linea + 2, 6.5)
+        altura_fila = max(max(lineas_celdas) * alto_linea + 3, 7.0)
 
         if pdf.get_y() + altura_fila > pdf.page_break_trigger:
             pdf.add_page()
-            dibujar_encabezado()
+            dibujar_encabezado_maq()
 
         pos_x_inicio = pdf.get_x()
         pos_y_inicio = pdf.get_y()
 
         for i, val in enumerate(valores):
             pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
-            pdf.set_xy(pos_x_inicio, pos_y_inicio + 1)
+            # Pequeño padding interno (+1mm en X y +1.2mm en Y) para que no roce los bordes
+            pdf.set_xy(pos_x_inicio + 1, pos_y_inicio + 1.2)
             alineacion = "C" if i in [0, 1, 2, 3, 4] else "L"
-            pdf.multi_cell(w_cols[i], alto_linea, val, border=0, align=alineacion)
+            pdf.multi_cell(w_cols[i] - 2, alto_linea, val, border=0, align=alineacion)
             pos_x_inicio += w_cols[i]
 
         pdf.set_xy(pdf.l_margin, pos_y_inicio + altura_fila)
@@ -752,7 +742,7 @@ if rol == "Desarrollador":
             st.error(f"Error al consultar el catálogo de piezas: {e_cat}")
             
 # ==========================================
-# VENTANA 2: MAQUINISTA (CON AUDITORÍA ESPECÍFICA)
+# VENTANA 2: MAQUINISTA (SOLO OPERACIÓN EN TALLER)
 # ==========================================
 elif rol == "Maquinista":
     st.header("🛠️ Área de Maquinado")
@@ -768,24 +758,25 @@ elif rol == "Maquinista":
         "Alessandro": "1234"
     }
 
-    if "maquinista_activo" not in st.session_state or st.session_state.maquinista_activo is None:
-        st.session_state.maquinista_activo = None
+    # Control de acceso estricto
+    if not st.session_state.get("maquinista_autenticado", False):
+        st.subheader("🔐 Identificación de Maquinista")
+        with st.form(key="form_auth_maquinista"):
+            col_l1, col_l2 = st.columns(2)
+            opciones_maq = ["-- Seleccionar operador --"] + list(maquinistas.keys())
+            usuario_sel = col_l1.selectbox("Nombre:", opciones_maq)
+            password_ingresado = col_l2.text_input("Contraseña / PIN:", type="password")
 
-        col_l1, col_l2 = st.columns(2)
-        opciones_maq = ["-- Seleccionar operador --"] + list(maquinistas.keys())
-        usuario_sel = col_l1.selectbox("Nombre:", opciones_maq)
-        password_ingresado = col_l2.text_input("Contraseña / PIN:", type="password")
-
-        if col_l2.button("Ingresar a Taller", use_container_width=True):
-            if usuario_sel == "-- Seleccionar operador --":
-                st.error("⚠️ Debes seleccionar tu nombre.")
-            elif password_ingresado == maquinistas.get(usuario_sel):
-                st.session_state.maquinista_activo = usuario_sel
-                st.session_state.usuario_actual = usuario_sel
-                st.success(f"Bienvenido, {usuario_sel}.")
-                st.rerun()
-            else:
-                st.error("Contraseña incorrecta.")
+            if st.form_submit_button("Ingresar a Taller", use_container_width=True):
+                if usuario_sel == "-- Seleccionar operador --":
+                    st.error("⚠️ Debes seleccionar tu nombre.")
+                elif password_ingresado == maquinistas.get(usuario_sel):
+                    st.session_state.maquinista_activo = usuario_sel
+                    st.session_state.usuario_actual = usuario_sel
+                    st.session_state.maquinista_autenticado = True
+                    st.rerun()
+                else:
+                    st.error("❌ Contraseña incorrecta.")
         st.stop()
 
     usuario = st.session_state.maquinista_activo
@@ -793,200 +784,165 @@ elif rol == "Maquinista":
     c_user1.success(f"Operador activo: **{usuario}**")
     if c_user2.button("Cambiar Operador"):
         st.session_state.maquinista_activo = None
+        st.session_state.maquinista_autenticado = False
         st.session_state.usuario_actual = None
         st.rerun()
 
-    tab_taller, tab_pdf_maq = st.tabs(["⚙️ Panel de Maquinado", "📥 Descargar Bitácora de Maquinistas (PDF)"])
+    dicc_pos = obtener_pos()
+    if not dicc_pos:
+        st.warning("No hay POs registradas.")
+        st.stop()
 
-    # --------------------------------------------------------------------------
-    # PESTAÑA 1: PANEL DE MAQUINADO Y VISOR
-    # --------------------------------------------------------------------------
-    with tab_taller:
-        dicc_pos = obtener_pos()
-        if not dicc_pos:
-            st.warning("No hay POs registradas.")
-            st.stop()
+    po = st.selectbox("Seleccione la PO a trabajar:", list(dicc_pos.keys()))
+    
+    respuesta = supabase.table("piezas").select("*").eq("po_number", po).execute()
+    piezas = respuesta.data
 
-        po = st.selectbox("Seleccione la PO a trabajar:", list(dicc_pos.keys()))
-        
-        respuesta = supabase.table("piezas").select("*").eq("po_number", po).execute()
-        piezas = respuesta.data
-
-        if not piezas:
-            st.info("No hay piezas cargadas para esta PO.")
-            st.stop()
-        
-        nombres_piezas = {
-            (p.get("Part number") or p.get("part_num")): p 
-            for p in piezas 
-            if (p.get("Part number") or p.get("part_num"))
-        }
-        
-        pieza_seleccionada = st.selectbox("Selecciona la pieza a trabajar:", list(nombres_piezas.keys()))
-        datos_pieza = nombres_piezas[pieza_seleccionada]
-        col_part = "Part number" if "Part number" in datos_pieza else "part_num"
-        
-        # --- REGISTRO DE PIEZAS TERMINADAS ---
-        with st.expander("📝 Registrar piezas terminadas"):
-            with st.form(key="form_registro"):
-                piezas_realizadas = st.multiselect("¿Qué piezas terminaste?", list(nombres_piezas.keys()))
-                notas_adicionales = st.text_area("Notas:")
+    if not piezas:
+        st.info("No hay piezas cargadas para esta PO.")
+        st.stop()
+    
+    nombres_piezas = {
+        (p.get("Part number") or p.get("part_num")): p 
+        for p in piezas 
+        if (p.get("Part number") or p.get("part_num"))
+    }
+    
+    pieza_seleccionada = st.selectbox("Selecciona la pieza a trabajar:", list(nombres_piezas.keys()))
+    datos_pieza = nombres_piezas[pieza_seleccionada]
+    col_part = "Part number" if "Part number" in datos_pieza else "part_num"
+    
+    # 1. REGISTRO DE PIEZAS TERMINADAS
+    with st.expander("📝 Registrar piezas terminadas"):
+        with st.form(key="form_registro"):
+            piezas_realizadas = st.multiselect("¿Qué piezas terminaste?", list(nombres_piezas.keys()))
+            notas_adicionales = st.text_area("Notas:")
+            
+            if st.form_submit_button("Registrar"):
+                notas_finales = str(notas_adicionales).strip() if notas_adicionales else "Sin notas"
                 
-                if st.form_submit_button("Registrar"):
-                    notas_finales = str(notas_adicionales).strip() if notas_adicionales else "Sin notas"
+                for p_num in piezas_realizadas:
+                    supabase.table("piezas").update({
+                        "maquinista_responsable": usuario,
+                        "notas_registro": notas_finales
+                    }).eq(col_part, p_num).execute()
                     
-                    for p_num in piezas_realizadas:
-                        supabase.table("piezas").update({
-                            "maquinista_responsable": usuario,
-                            "notas_registro": notas_finales
-                        }).eq(col_part, p_num).execute()
-                        
-                        registrar_log_maquinista(
-                            po_number=po,
-                            part_num=p_num,
-                            tipo_accion="Pieza Terminada",
-                            detalle=f"Terminada por {usuario}",
-                            notas=notas_finales
-                        )
-                    
-                    st.success("¡Registro actualizado y archivado en bitácora!")
-                    time.sleep(1)
-                    st.rerun()
-
-        # --- PLANOS Y ESPECIFICACIONES ---
-        sub_tab1, sub_tab2, sub_tab3 = st.tabs(["📄 Plano Original", "⚙️ Especificaciones (TL)", "📝 Traducción"])
-
-        with sub_tab1:
-            url_org = datos_pieza.get('url_pdf_org')
-            if url_org and str(url_org).startswith("http"):
-                st.link_button("↗️ Abrir plano en pestaña nueva", url_org)
-                pdf_org_bytes = descargar_bytes_pdf(url_org)
-                if pdf_org_bytes:
-                    pdf_viewer(input=pdf_org_bytes, width=950, height=650)
-                else:
-                    st.warning("No se pudo cargar el archivo del plano.")
-            else:
-                st.warning("No hay plano original disponible.")
-
-        with sub_tab2:
-            url_tl = datos_pieza.get('url_pdf_tl')
-            if url_tl and str(url_tl).startswith("http"):
-                st.link_button("↗️ Abrir archivo TL en pestaña nueva", url_tl)
-                pdf_tl_bytes = descargar_bytes_pdf(url_tl)
-                if pdf_tl_bytes:
-                    pdf_viewer(input=pdf_tl_bytes, width=950, height=650)
-                else:
-                    st.warning("No se pudo cargar el archivo TL.")
-            else: 
-                st.warning("No hay archivo TL disponible.")
-
-        with sub_tab3:
-            st.info(datos_pieza.get('texto_traducido') or "Sin traducción disponible.")
-
-        # --- PARÁMETROS TÉCNICOS Y HERRAMENTAL ---
-        st.subheader("Actualizar Parámetros")
-        herramientas_bd = sorted(list(set(
-            h.strip() 
-            for p in piezas if p.get('herramienta_necesaria') 
-            for h in str(p['herramienta_necesaria']).split('\n') if h.strip()
-        )))
-        acabados_bd = sorted(list(set(str(p['acabado']).strip() for p in piezas if p.get('acabado') and str(p['acabado']).strip())))
-        tratamientos_bd = sorted(list(set(str(p['tratamiento']).strip() for p in piezas if p.get('tratamiento') and str(p['tratamiento']).strip())))
-
-        lista_herr_previas = [h.strip() for h in str(datos_pieza.get('herramienta_necesaria', '')).split('\n') if h.strip()]
-
-        with st.form(key=f"form_{datos_pieza[col_part]}"):
-            c1, c2, c3 = st.columns(3)
-            with c1:
-                herr_sel = st.multiselect(
-                    "Herramientas existentes:", 
-                    herramientas_bd, 
-                    default=[h for h in lista_herr_previas if h in herramientas_bd]
-                )
-                herr_nuevas = st.text_area("Herramientas nuevas (Nombre - Medida - Material):", height=100)
-            with c2:
-                acabado_sel = st.selectbox("Acabado existente:", ["Ninguno"] + acabados_bd)
-                acabado_nuevo = st.text_input("Nuevo acabado:")
-                mat_recibido = st.checkbox("¿Material Recibido?", value=bool(datos_pieza.get('material_llegado')))
-            with c3:
-                trat_sel = st.selectbox("Tratamiento existente:", ["Ninguno"] + tratamientos_bd)
-                trat_nuevo = st.text_input("Nuevo tratamiento:")
-                comentarios_mat = st.text_area("Notas de material:", value=datos_pieza.get('notas_material') or "", height=68)
-
-            if st.form_submit_button("Guardar Parámetros"):
-                nuevas_ingresadas = [h.strip() for h in herr_nuevas.split('\n') if h.strip()]
-                herr_final_lista = list(dict.fromkeys(herr_sel + nuevas_ingresadas))
-                herr_final_txt = '\n'.join(herr_final_lista)
-
-                acab_final = acabado_nuevo.strip() if acabado_nuevo.strip() != "" else (acabado_sel if acabado_sel != "Ninguno" else "")
-                trat_final = trat_nuevo.strip() if trat_nuevo.strip() != "" else (trat_sel if trat_sel != "Ninguno" else "")
-
-                # Detección precisa de herramientas añadidas y removidas
-                set_previo = set(lista_herr_previas)
-                set_nuevo = set(herr_final_lista)
-                herramientas_anadidas = list(set_nuevo - set_previo)
-                herramientas_quitadas = list(set_previo - set_nuevo)
-
-                update_data = {
-                    "herramienta_necesaria": herr_final_txt,
-                    "acabado": acab_final,
-                    "tratamiento": trat_final,
-                    "material_llegado": mat_recibido,
-                    "notas_material": comentarios_mat.strip()
-                }
-                supabase.table("piezas").update(update_data).eq(col_part, datos_pieza[col_part]).execute()
-
-                detalles_cambios = []
-                if mat_recibido != bool(datos_pieza.get('material_llegado')):
-                    detalles_cambios.append(f"Material llegó: {mat_recibido}")
-                if acab_final != (datos_pieza.get('acabado') or ""):
-                    detalles_cambios.append(f"Acabado: {acab_final}")
-                if trat_final != (datos_pieza.get('tratamiento') or ""):
-                    detalles_cambios.append(f"Tratamiento: {trat_final}")
-
-                # Registrar con el desglose exacto
-                registrar_log_maquinista(
-                    po_number=po,
-                    part_num=datos_pieza[col_part],
-                    tipo_accion="Actualización de Parámetros",
-                    agregadas=", ".join(herramientas_anadidas) if herramientas_anadidas else "-",
-                    removidas=", ".join(herramientas_quitadas) if herramientas_quitadas else "-",
-                    detalle=" | ".join(detalles_cambios) if detalles_cambios else "Parámetros actualizados",
-                    notas=comentarios_mat.strip()
-                )
-
-                st.success("¡Parámetros actualizados y auditados con éxito!")
+                    registrar_log_maquinista(
+                        po_number=po,
+                        part_num=p_num,
+                        tipo_accion="Pieza Terminada",
+                        detalle=f"Terminada por {usuario}",
+                        notas=notas_finales
+                    )
+                
+                st.success("¡Registro actualizado en la base de datos y archivado en bitácora!")
                 time.sleep(1)
                 st.rerun()
 
-    # --------------------------------------------------------------------------
-    # PESTAÑA 2: DESCARGA DE BITÁCORA DE MAQUINISTAS (PDF)
-    # --------------------------------------------------------------------------
-    with tab_pdf_maq:
-        st.subheader("📥 Descargar Bitácora de Taller (PDF)")
-        st.write("Genera el reporte oficial en PDF con las modificaciones de herramientas, materiales y piezas terminadas por los maquinistas.")
+    # 2. PLANOS Y ESPECIFICACIONES
+    tab1, tab2, tab3 = st.tabs(["📄 Plano Original", "⚙️ Especificaciones (TL)", "📝 Traducción"])
 
-        try:
-            res_logs_maq = supabase.table("historial_maquinistas").select("*").execute()
-            data_maq = res_logs_maq.data or []
-
-            if data_maq:
-                logs_ordenados = sorted(data_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
-                pdf_bytes_m = generar_pdf_historial_maquinistas(logs_ordenados)
-
-                st.download_button(
-                    label="📄 Descargar Bitácora de Maquinistas en PDF",
-                    data=pdf_bytes_m,
-                    file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                st.caption(f"Total de registros de taller disponibles: **{len(logs_ordenados)}** eventos.")
+    with tab1:
+        url_org = datos_pieza.get('url_pdf_org')
+        if url_org and str(url_org).startswith("http"):
+            st.link_button("↗️ Abrir plano en pestaña nueva", url_org)
+            pdf_org_bytes = descargar_bytes_pdf(url_org)
+            if pdf_org_bytes:
+                pdf_viewer(input=pdf_org_bytes, width=950, height=650)
             else:
-                st.info("Aún no hay registros en la bitácora de maquinistas.")
-        except Exception as e_desc:
-            st.warning("No se pudo cargar la bitácora de maquinistas. Verifica que la tabla 'historial_maquinistas' esté creada en Supabase.")
-            st.caption(f"Detalle técnico: {e_desc}")
+                st.warning("No se pudo cargar el archivo del plano.")
+        else:
+            st.warning("No hay plano original disponible.")
+
+    with tab2:
+        url_tl = datos_pieza.get('url_pdf_tl')
+        if url_tl and str(url_tl).startswith("http"):
+            st.link_button("↗️ Abrir archivo TL en pestaña nueva", url_tl)
+            pdf_tl_bytes = descargar_bytes_pdf(url_tl)
+            if pdf_tl_bytes:
+                pdf_viewer(input=pdf_tl_bytes, width=950, height=650)
+            else:
+                st.warning("No se pudo cargar el archivo TL.")
+        else: 
+            st.warning("No hay archivo TL disponible.")
+
+    with tab3:
+        st.info(datos_pieza.get('texto_traducido') or "Sin traducción disponible.")
+
+    # 3. ACTUALIZAR PARÁMETROS TÉCNICOS
+    st.subheader("Actualizar Parámetros")
+    herramientas_bd = sorted(list(set(
+        h.strip() 
+        for p in piezas if p.get('herramienta_necesaria') 
+        for h in str(p['herramienta_necesaria']).split('\n') if h.strip()
+    )))
+    acabados_bd = sorted(list(set(str(p['acabado']).strip() for p in piezas if p.get('acabado') and str(p['acabado']).strip())))
+    tratamientos_bd = sorted(list(set(str(p['tratamiento']).strip() for p in piezas if p.get('tratamiento') and str(p['tratamiento']).strip())))
+
+    lista_herr_previas = [h.strip() for h in str(datos_pieza.get('herramienta_necesaria', '')).split('\n') if h.strip()]
+
+    with st.form(key=f"form_{datos_pieza[col_part]}"):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            herr_sel = st.multiselect(
+                "Herramientas existentes:", 
+                herramientas_bd, 
+                default=[h for h in lista_herr_previas if h in herramientas_bd]
+            )
+            herr_nuevas = st.text_area("Herramientas nuevas (Nombre - Medida - Material):", height=100)
+        with c2:
+            acabado_sel = st.selectbox("Acabado existente:", ["Ninguno"] + acabados_bd)
+            acabado_nuevo = st.text_input("Nuevo acabado:")
+            mat_recibido = st.checkbox("¿Material Recibido?", value=bool(datos_pieza.get('material_llegado')))
+        with c3:
+            trat_sel = st.selectbox("Tratamiento existente:", ["Ninguno"] + tratamientos_bd)
+            trat_nuevo = st.text_input("Nuevo tratamiento:")
+            comentarios_mat = st.text_area("Notas de material:", value=datos_pieza.get('notas_material') or "", height=68)
+
+        if st.form_submit_button("Guardar Parámetros"):
+            nuevas_ingresadas = [h.strip() for h in herr_nuevas.split('\n') if h.strip()]
+            herr_final_lista = list(dict.fromkeys(herr_sel + nuevas_ingresadas))
+            herr_final_txt = '\n'.join(herr_final_lista)
+
+            acab_final = acabado_nuevo.strip() if acabado_nuevo.strip() != "" else (acabado_sel if acabado_sel != "Ninguno" else "")
+            trat_final = trat_nuevo.strip() if trat_nuevo.strip() != "" else (trat_sel if trat_sel != "Ninguno" else "")
+
+            # Detección de herramientas agregadas y removidas
+            set_previo = set(lista_herr_previas)
+            set_nuevo = set(herr_final_lista)
+            herramientas_anadidas = list(set_nuevo - set_previo)
+            herramientas_quitadas = list(set_previo - set_nuevo)
+
+            update_data = {
+                "herramienta_necesaria": herr_final_txt,
+                "acabado": acab_final,
+                "tratamiento": trat_final,
+                "material_llegado": mat_recibido,
+                "notas_material": comentarios_mat.strip()
+            }
+            supabase.table("piezas").update(update_data).eq(col_part, datos_pieza[col_part]).execute()
+
+            detalles_cambios = []
+            if mat_recibido != bool(datos_pieza.get('material_llegado')):
+                detalles_cambios.append(f"Material llegó: {mat_recibido}")
+            if acab_final != (datos_pieza.get('acabado') or ""):
+                detalles_cambios.append(f"Acabado: {acab_final}")
+            if trat_final != (datos_pieza.get('tratamiento') or ""):
+                detalles_cambios.append(f"Tratamiento: {trat_final}")
+
+            registrar_log_maquinista(
+                po_number=po,
+                part_num=datos_pieza[col_part],
+                tipo_accion="Actualización de Parámetros",
+                agregadas=", ".join(herramientas_anadidas) if herramientas_anadidas else "-",
+                removidas=", ".join(herramientas_quitadas) if herramientas_quitadas else "-",
+                detalle=" | ".join(detalles_cambios) if detalles_cambios else "Parámetros actualizados",
+                notas=comentarios_mat.strip()
+            )
+
+            st.success("¡Parámetros actualizados y auditados con éxito!")
+            time.sleep(1)
+            st.rerun()
 
 # ==========================================
 # VENTANA 3: INVENTARIOS (Inventario_Atlas)
@@ -2281,58 +2237,63 @@ elif rol == "Supervisor":
         except Exception as e_r_sup:
             st.error(f"Error en validación de requisiciones: {e_r_sup}")
 
-    # ==========================================
-    # PESTAÑA 3: DESCARGA DE HISTORIAL (PDF)
+# ==========================================
+    # PESTAÑA: DESCARGA DE HISTORIALES (PDF)
     # ==========================================
     with tab_historial_pdf:
-        st.subheader("📥 Descargar Bitácora de Modificaciones")
-        st.write("Genera un documento PDF formal con todos los cambios recientes realizados por cada usuario, ordenados por fecha y hora.")
+        st.subheader("📥 Exportación de Bitácoras de Auditoría")
+        
+        col_sup_box, col_maq_box = st.columns(2)
 
-        # Filtro opcional por usuario sin saturar la vista
-        col_fil_h1, col_fil_h2 = st.columns([2, 1])
-        with col_fil_h1:
-            filtro_usr_pdf = st.selectbox(
-                "Filtrar reporte por supervisor / usuario:",
-                ["Todos los usuarios", "Jonathan", "Ilagor", "Sayuri", "Alessandro", "Desarrollador"],
-                key="filtro_usr_historial_pdf"
-            )
-        with col_fil_h2:
-            limite_regs = st.selectbox("Límite de movimientos:", [50, 100, 200, 500], index=1)
+        # 1. BITÁCORA DE SUPERVISORES
+        with col_sup_box:
+            with st.container(border=True):
+                st.markdown("#### 📋 Bitácora de Supervisión")
+                st.caption("Cambios de estatus de POs, piezas y validación de requisiciones.")
 
-        try:
-            # Consulta a la tabla historial_cambios
-            query_log = supabase.table("historial_cambios").select("*")
-            if filtro_usr_pdf != "Todos los usuarios":
-                query_log = query_log.eq("usuario", filtro_usr_pdf)
-            
-            res_logs = query_log.execute()
-            data_logs = res_logs.data or []
+                try:
+                    res_sup = supabase.table("historial_cambios").select("*").execute()
+                    logs_sup = res_sup.data or []
+                    if logs_sup:
+                        logs_sup_ord = sorted(logs_sup, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_sup = generar_pdf_historial_cambios(logs_sup_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Supervisión (PDF)",
+                            data=pdf_bytes_sup,
+                            file_name=f"Bitacora_Supervision_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_sup_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de supervisión.")
+                except Exception as e_sup:
+                    st.warning(f"Error al leer bitácora de supervisión: {e_sup}")
 
-            if data_logs:
-                # Ordenamiento seguro por fecha en Python
-                logs_ordenados = sorted(
-                    data_logs, 
-                    key=lambda x: str(x.get("fecha_hora", "")), 
-                    reverse=True
-                )[:limite_regs]
+        # 2. BITÁCORA DE MAQUINISTAS
+        with col_maq_box:
+            with st.container(border=True):
+                st.markdown("#### 🛠️ Bitácora de Maquinistas")
+                st.caption("Herramientas agregadas/removidas, material y piezas terminadas.")
 
-                # Generar el binario del PDF
-                pdf_historial_bytes = generar_pdf_historial_cambios(logs_ordenados)
-
-                st.download_button(
-                    label="📄 Descargar Bitácora en PDF",
-                    data=pdf_historial_bytes,
-                    file_name=f"Historial_Cambios_Atlas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                st.caption(f"✅ Se encontraron **{len(logs_ordenados)}** movimientos recientes listos para exportar.")
-            else:
-                st.info("Aún no hay modificaciones registradas en el historial.")
-        except Exception as e_log:
-            st.warning("No se pudo obtener el historial. Verifica que la tabla 'historial_cambios' esté creada en Supabase.")
-            st.caption(f"Detalle técnico: {e_log}")
-
+                try:
+                    res_maq = supabase.table("historial_maquinistas").select("*").execute()
+                    logs_maq = res_maq.data or []
+                    if logs_maq:
+                        logs_maq_ord = sorted(logs_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_maq = generar_pdf_historial_maquinistas(logs_maq_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Maquinistas (PDF)",
+                            data=pdf_bytes_maq,
+                            file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_maq_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de maquinistas.")
+                except Exception as e_maq:
+                    st.warning(f"Error al leer bitácora de maquinistas: {e_maq}")
 
 # ==========================================
 # VENTANA 5: GERENTE (DASHBOARD GENERAL)
