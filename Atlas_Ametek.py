@@ -1501,12 +1501,14 @@ elif rol == "Inventarios":
 elif rol == "Supervisor":
     st.header("📋 Área de Supervisión: Control Continuo")
 
-    # 1. Catálogo de supervisores y PINs
+    # ==========================================
+    # 0. CONTROL DE ACCESO POR USUARIO SUPERVISOR
+    # ==========================================
     supervisores = {
-        "Jonathan": "2026",
-        "Ilagor": "2026",
-        "Sayuri": "2026",
-        "Alessandro": "1234"
+        "Jonathan": "J6182",
+        "Ilagor": "I3954",
+        "Sayuri": "S7205",
+        "Alessandro": "A1498"
     }
 
     # 2. Control de sesión y login estricto
