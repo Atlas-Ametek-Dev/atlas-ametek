@@ -1741,14 +1741,14 @@ elif rol == "Supervisor":
                         if not filtro_estados_sin_prod and not coincide_po_prod:
                             continue
 
-                       pos_matriz[po_k]["piezas"].append({
-                            "part_num": pn_r,
-                            "fecha": f_ent,
-                            "cantidad": cant_pz_num,
-                            "estados": lista_est_pz,
-                            "comentario_pz": str(reg.get("comentarios") or "").strip(),
-                            "es_ensamble": bool(reg.get("es_ensamble", False))  # <-- Nuevo campo
-                        })
+               pos_matriz[po_k]["piezas"].append({
+                    "part_num": pn_r,
+                    "fecha": f_ent,
+                    "cantidad": cant_pz_num,
+                    "estados": lista_est_pz,
+                    "comentario_pz": str(reg.get("comentarios") or "").strip(),
+                    "es_ensamble": bool(reg.get("es_ensamble", False))  # <-- Nuevo campo
+                })
     
                 lista_pos_cols = [
                     k for k in sorted(list(pos_matriz.keys()))
