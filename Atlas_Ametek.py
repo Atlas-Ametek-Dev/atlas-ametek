@@ -389,6 +389,9 @@ else:
     rol = st.session_state.rol_actual
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.autenticado = False
+        st.session_state.rol_actual = None
+        st.session_state.usuario_actual = None
+        st.session_state.supervisor_activo = None  # <-- Limpia el supervisor activo
         st.rerun()
 # ==========================================
 # VENTANA 1: DESARROLLADOR (COMPLETO)
