@@ -266,6 +266,37 @@ Sistema de Control y Gestión Atlas - Shirsa Maquinados
 
 @st.cache_data(ttl=600, show_spinner=False)
 
+
+# ==============================================================================
+#      FUNCIÓN DE AUDITORÍA EXCLUSIVA PARA SUPERVISORES
+# ==============================================================================
+def registrar_log_cambio(po_number, campo_editado, valor_anterior, valor_nuevo, part_num="-", motivo=""):
+    """Inserta una entrada en la tabla historial_cambios de Supabase."""
+    try:
+        sup = (
+            st.session_state.get("supervisor_activo") 
+            or st.session_state.get("usuario_actual") 
+            or "Supervisor"
+        )
+        rol = st.session_state.get("rol_actual", "Supervisor")
+
+        data = {
+            "usuario": str(sup),
+            "rol": str(rol),
+            "po_number": str(po_number),
+            "part_num": str(part_num) if part_num else "-",
+            "campo_editado": str(campo_editado),
+            "valor_anterior": str(valor_anterior) if valor_anterior is not None else "",
+            "valor_nuevo": str(valor_nuevo) if valor_nuevo is not None else "",
+            "motivo": str(motivo) if motivo else ""
+        }
+        res = supabase.table("historial_cambios").insert(data).execute()
+        return res
+    except Exception as e:
+        print(f"Error al registrar log de supervisor: {e}")
+        return None
+
+
 # ==============================================================================
 #      1. BITÁCORA DE SUPERVISORES (PDF HORIZONTAL CON HORA LOCAL)
 # ==============================================================================
@@ -357,6 +388,31 @@ def generar_pdf_historial_cambios(registros):
     if isinstance(salida, str):
         return salida.encode("latin-1", errors="replace")
     return bytes(salida)
+
+
+
+
+
+# ==============================================================================
+#      FUNCIÓN DE AUDITORÍA EXCLUSIVA PARA MAQUINISTAS
+# ==============================================================================
+def registrar_log_maquinista(po_number, part_num, tipo_accion, agregadas="", removidas="", detalle="", notas=""):
+    """Inserta una entrada en la tabla historial_maquinistas de Supabase."""
+    try:
+        maq = st.session_state.get("maquinista_activo") or st.session_state.get("usuario_actual") or "Maquinista"
+        data = {
+            "maquinista": str(maq),
+            "po_number": str(po_number),
+            "part_num": str(part_num) if part_num else "-",
+            "tipo_accion": str(tipo_accion),
+            "herramientas_agregadas": str(agregadas) if agregadas else "-",
+            "herramientas_removidas": str(removidas) if removidas else "-",
+            "detalle_general": str(detalle) if detalle else "-",
+            "notas": str(notas) if notas else "-"
+        }
+        supabase.table("historial_maquinistas").insert(data).execute()
+    except Exception as e:
+        print(f"Error al registrar log de maquinista: {e}")
 
 
 # ==============================================================================
