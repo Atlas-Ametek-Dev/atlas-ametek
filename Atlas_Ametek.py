@@ -1797,7 +1797,7 @@ elif rol == "Supervisor":
 
                         # Comprobar si forma parte de un ensamble
                         es_ensamble_pz = pz.get("es_ensamble", False)
-                        icono_ensamble = " 🧩" if es_ensamble_pz else ""
+                        icono_ensamble = " ⚙️" if es_ensamble_pz else ""
                         
                         # En la descripción del tooltip flotante:
                         tooltip_html_lines = [
@@ -1806,19 +1806,20 @@ elif rol == "Supervisor":
                             f"<b>📅 Entrega:</b> {fecha_pz}",
                             f"<b>🏷️ Estados:</b> {', '.join(ests_pz)}"
                         ]
+                        # En el tooltip flotante:
                         if es_ensamble_pz:
-                            tooltip_html_lines.append("<b>🧩 Ensamble:</b> Parte de un ensamble")
+                            tooltip_html_lines.append("<b>⚙️ Ensamble:</b> Parte de un ensamble")
                         if pz["comentario_pz"]:
                             tooltip_html_lines.append(f"<b>💬 Nota Pieza:</b> {pz['comentario_pz']}")
                         
                         contenido_tooltip = "<br>".join(tooltip_html_lines)
                         
-                        # En la celda visible:
+                        # En el texto visible de la celda:
                         celda_html = f'''<div class="custom-tooltip-wrapper" style="{bg_style} padding:7px 6px; margin-bottom:5px; border-radius:4px; font-size:15px; font-weight:bold; text-align:center; box-shadow:0 1px 2px rgba(0,0,0,0.08);">
                         <span style="display:block; overflow:hidden; text-overflow:ellipsis;">{num_parte}{icono_ensamble}</span>
                         <div class="custom-tooltip-text">{contenido_tooltip}</div>
                         </div>'''
-                        
+                    
                         bloques_piezas.append(celda_html)
 
                     html_piezas = "".join(bloques_piezas)
