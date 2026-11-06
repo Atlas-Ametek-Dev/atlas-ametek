@@ -1501,8 +1501,45 @@ elif rol == "Inventarios":
 elif rol == "Supervisor":
 
     st.header("📋 Área de Supervisión: Control Continuo")
-    
-    tab_piez_term, tab_req = st.tabs(["🏭 Producción", "📦 Requisiciones"])
+
+    # ==========================================
+    # 0. CONTROL DE ACCESO POR USUARIO SUPERVISOR
+    # ==========================================
+    supervisores = {
+        "Jonathan": "J6182",
+        "Ilagor": "I3954",
+        "Sayuri": "S7205",
+        "Alessandro": "A1498"
+    }
+
+    if "supervisor_activo" not in st.session_state:
+        st.session_state.supervisor_activo = None
+
+    if not st.session_state.supervisor_activo:
+        st.subheader("🔐 Identificación de Supervisor")
+        col_s1, col_s2 = st.columns(2)
+        sup_nombre = col_s1.selectbox("Selecciona tu nombre:", list(supervisores.keys()))
+        sup_pass = col_s2.text_input("Contraseña / PIN de Supervisor:", type="password")
+
+        if col_s2.button("Ingresar al Panel de Supervisión"):
+            if sup_pass == supervisores.get(sup_nombre) or sup_pass == "S2S3":
+                st.session_state.supervisor_activo = sup_nombre
+                st.session_state.usuario_actual = sup_nombre
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+        st.stop()
+
+    usuario_sup = st.session_state.supervisor_activo
+    c_sup_h1, c_sup_h2 = st.columns([4, 1])
+    c_sup_h1.success(f"Supervisor en turno: **{usuario_sup}**")
+    if c_sup_h2.button("Cambiar Supervisor"):
+        st.session_state.supervisor_activo = None
+        st.session_state.usuario_actual = None
+        st.rerun()
+
+    # Pestañas incluyendo la descarga directa del historial
+    tab_piez_term, tab_req, tab_historial_pdf = st.tabs(["🏭 Producción", "📦 Requisiciones", "📥 Descargar Historial (PDF)"])
 
     # ==========================================
     # CONFIGURACIÓN DE ESTADOS Y COLORES
@@ -1565,7 +1602,6 @@ elif rol == "Supervisor":
             # ==========================================
             st.subheader("📊 Panorama General de POs (Matriz de Taller)")
     
-            # Traemos las piezas incluyendo 'cantidad_solicitada'
             with st.spinner("Generando tablero visual..."):
                 res_todas = supabase.table("piezas").select(
                     'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion'
@@ -1644,7 +1680,6 @@ elif rol == "Supervisor":
                         st.rerun()
     
             if res_todas:
-                # 2. Agrupar piezas aplicando filtros de mes, término, búsqueda y categoría
                 pos_matriz = {}
                 clave_mes_filtro = mapa_etiqueta_clave.get(mes_seleccionado, None)
     
@@ -1654,7 +1689,6 @@ elif rol == "Supervisor":
                     f_ent = str(reg.get("fecha_entrega") or "Sin fecha").strip()
                     cant_pz_num = reg.get("cantidad_solicitada") or reg.get("cantidad") or 1
     
-                    # Filtrar por mes
                     if clave_mes_filtro:
                         try:
                             f_obj = pd.to_datetime(reg.get("fecha_entrega"))
@@ -1682,7 +1716,6 @@ elif rol == "Supervisor":
                     if not lista_est_pz:
                         lista_est_pz = ["En proceso"]
     
-                    # Filtros de estado / terminación
                     es_terminada = ("Terminada" in lista_est_pz)
                     es_enviada = ("Enviado a cliente" in lista_est_pz)
                     es_concluida = es_terminada or es_enviada
@@ -1695,11 +1728,9 @@ elif rol == "Supervisor":
                     if filtro_terminacion == "Solo terminadas" and not es_terminada:
                         continue
 
-                    # Filtro por búsqueda de texto
                     if busqueda_pieza_filtro and (busqueda_pieza_filtro not in pn_r.lower()):
                         continue
     
-                    # Filtro por categorías / estados seleccionados
                     if filtro_categorias_sel:
                         filtro_estados_sin_prod = [c for c in filtro_categorias_sel if c != "PO en Producción"]
                         coincide_estado_pieza = any(c in lista_est_pz for c in filtro_estados_sin_prod)
@@ -1718,7 +1749,6 @@ elif rol == "Supervisor":
                         "comentario_pz": str(reg.get("comentarios") or "").strip()
                     })
     
-                # Lista de POs visibles según filtros
                 lista_pos_cols = [
                     k for k in sorted(list(pos_matriz.keys()))
                     if (not filtro_solo_prod or pos_matriz[k]["en_produccion"])
@@ -1726,7 +1756,6 @@ elif rol == "Supervisor":
                     and len(pos_matriz[k]["piezas"]) > 0
                 ]
     
-                # 3. Leyenda fija "Acciones"
                 cfg_prod = ESTADOS_COLORES.get("Produccion", {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"})
                 filas_acciones = [
                     f'<div style="background-color:{cfg_prod["bg"]}; color:{cfg_prod["fg"]}; border:2px dashed {cfg_prod["border"]}; padding:5px 6px; margin-bottom:6px; border-radius:4px; font-size:11px; font-weight:bold; text-align:center;">🏷️ PO en Producción</div>'
@@ -1739,7 +1768,6 @@ elif rol == "Supervisor":
                     filas_acciones.append(f'<div style="{estilo_acc}">{accion}</div>')
                 html_acciones = "".join(filas_acciones)
     
-                # 4. Columnas de cada PO con Tooltip en el Encabezado
                 columnas_pos_html = []
                 for po_k in lista_pos_cols:
                     coment_po_k = pos_matriz[po_k]["comentario"]
@@ -1766,7 +1794,6 @@ elif rol == "Supervisor":
                             cfg_main = ESTADOS_COLORES.get(ests_relevantes[0], {"fg": "#000000", "border": "#000000"})
                             bg_style = f"background: repeating-linear-gradient(45deg, {c1}, {c1} 10px, {c2} 10px, {c2} 20px); color: {cfg_main['fg']}; border: 2px solid {cfg_main['border']};"
 
-                        # Tooltip flotante de la pieza (datos de pieza individuales)
                         tooltip_html_lines = [
                             f"<b>⚙️ Pieza:</b> {num_parte}",
                             f"<b>📦 Cantidad:</b> {cant_pz} pzs",
@@ -1786,7 +1813,6 @@ elif rol == "Supervisor":
 
                     html_piezas = "".join(bloques_piezas)
 
-                    # Colores del encabezado de la PO
                     if esta_en_prod:
                         bg_po_header = cfg_prod["bg"]
                         fg_po_header = cfg_prod["fg"]
@@ -1796,7 +1822,6 @@ elif rol == "Supervisor":
                         fg_po_header = "#FFFFFF"
                         border_po_header = "1px solid #003366"
 
-                    # Tooltip flotante exclusivo para el encabezado de la PO si tiene comentario
                     tooltip_po_header = ""
                     indicador_nota = ""
                     if coment_po_k:
@@ -1818,7 +1843,6 @@ elif rol == "Supervisor":
 
                 html_columnas_unidas = "".join(columnas_pos_html)
     
-                # Estilos CSS con Tooltip a la DERECHA
                 css_scroll = """<style>
 .matriz-scroll-container {
     overflow-x: scroll !important;
@@ -1895,7 +1919,7 @@ elif rol == "Supervisor":
 }
 </style>"""
 
-                # Montaje del contenedor HTML sin sangrías para evitar bloques de código planos
+              # Montaje del contenedor HTML sin sangrías para evitar bloques de código planos
                 html_tablero = (
                     f"{css_scroll}\n"
                     f'<div class="matriz-scroll-container">\n'
@@ -1913,44 +1937,39 @@ elif rol == "Supervisor":
 
                 st.markdown(html_tablero, unsafe_allow_html=True)
 
-
-            #===========================================
+            # ===========================================
             # SECCIÓN 1.5 : DESCARGAR REPORTE POR PO
-            #===========================================
-
+            # ===========================================
             st.markdown("---")
             st.subheader("REPORTE DE PO")
 
-            # --- FILTRO POR NÚMERO DE PO (FILA 3) ---
             todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
             opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
     
             col_po_filtro, col_po_btn, col_po_pdf = st.columns([3.0, 1.2, 1.4])
             with col_po_filtro:
                 po_filtrada_sel = st.selectbox(
-                "🔍 Filtrar panorama por número de PO:",
-                options=opciones_filtro_po,
-                key="filtro_po_reporte_pdf",  # <-- Cambiar por un key único aquí
-                help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
-            )
+                    "🔍 Filtrar panorama por número de PO:",
+                    options=opciones_filtro_po,
+                    key="filtro_po_reporte_pdf",
+                    help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
+                )
             with col_po_btn:
                 st.write("")
                 st.write("")
                 if po_filtrada_sel != "-- Todas las POs --":
-                    if st.button("Ir a editar esta PO ↗", use_container_width=True):
+                    if st.button("Ir a editar esta PO ↗️", use_container_width=True):
                         st.session_state.po_activa = po_filtrada_sel
                         st.rerun()
 
             with col_po_pdf:
                 st.write("")
                 st.write("")
-                # Si hay una PO seleccionada en el filtro o en la PO activa
                 po_para_reporte = po_filtrada_sel if po_filtrada_sel != "-- Todas las POs --" else st.session_state.get("po_activa")
                 
                 if po_para_reporte and po_para_reporte in pos_matriz:
                     datos_po_sel = pos_matriz[po_para_reporte]
                     
-                    # Generar los bytes del PDF
                     pdf_bytes = generar_pdf_reporte_po(
                         po_numero=po_para_reporte,
                         piezas_lista=datos_po_sel.get("piezas", []),
@@ -2028,6 +2047,27 @@ elif rol == "Supervisor":
                         "comentarios_po": nuevo_coment_po.strip(),
                         "po_en_produccion": nuevo_en_prod
                     }).eq("po_number", po_seleccionada).execute()
+
+                    # Registro de auditoría
+                    if nuevo_en_prod != po_prod_val:
+                        registrar_log_cambio(
+                            po_number=po_seleccionada,
+                            campo_editado="po_en_produccion",
+                            valor_anterior=str(po_prod_val),
+                            valor_nuevo=str(nuevo_en_prod),
+                            part_num="-",
+                            motivo=f"Cambio por {usuario_sup}"
+                        )
+                    if nuevo_coment_po.strip() != comentario_po_val.strip():
+                        registrar_log_cambio(
+                            po_number=po_seleccionada,
+                            campo_editado="comentarios_po",
+                            valor_anterior=comentario_po_val,
+                            valor_nuevo=nuevo_coment_po.strip(),
+                            part_num="-",
+                            motivo=f"Nota PO editada por {usuario_sup}"
+                        )
+
                     st.toast(f"Estatus de PO {po_seleccionada} actualizado", icon="📦")
                     st.rerun()
     
@@ -2110,130 +2150,227 @@ elif rol == "Supervisor":
                                 "estado_proceso": estados_finales[0],
                                 "comentarios": nuevo_coment_pz.strip()
                             }).eq("id", id_pieza).execute()
+
+                            # Auditoría de cambio de pieza
+                            if sorted(estados_finales) != sorted(estados_actuales):
+                                registrar_log_cambio(
+                                    po_number=po_seleccionada,
+                                    campo_editado="estados_proceso",
+                                    valor_anterior=str(estados_actuales),
+                                    valor_nuevo=str(estados_finales),
+                                    part_num=part_num,
+                                    motivo=f"Actualizado por {usuario_sup}"
+                                )
+                            if nuevo_coment_pz.strip() != coment_pieza_act.strip():
+                                registrar_log_cambio(
+                                    po_number=po_seleccionada,
+                                    campo_editado="comentarios",
+                                    valor_anterior=coment_pieza_act,
+                                    valor_nuevo=nuevo_coment_pz.strip(),
+                                    part_num=part_num,
+                                    motivo=f"Nota técnica editada por {usuario_sup}"
+                                )
     
                             st.session_state["pieza_enfoque"] = None
                             st.toast(f"Pieza {part_num} actualizada", icon="✅")
                             st.rerun()
+
+    # ==========================================
+    # PESTAÑA 2: REQUISICIONES
+    # ==========================================
+    with tab_req:
+        st.subheader("📬 Validación de Requisiciones de Almacén")
     
-        with tab_req:
-            st.subheader("📬 Validación de Requisiciones de Almacén")
-        
-            try:
-                # Consultamos todas las partidas que se encuentren en estatus 'Enviada'
-                res_req_sup = supabase.table("requisiciones_atlas").select("*").eq("estatus", "Enviada").execute()
-                reqs_pendientes = res_req_sup.data or []
-        
-                if reqs_pendientes:
-                    # Obtenemos las POs únicas que tienen partidas por validar
-                    pos_con_req = sorted(list(set(str(r["po_number"]).strip() for r in reqs_pendientes if r.get("po_number"))))
-                    po_req_sel = st.selectbox("Seleccione la Requisición / PO a dictaminar:", pos_con_req, key="sup_po_req_select")
-        
-                    # Filtramos las partidas exactas de esa PO seleccionada
-                    items_a_revisar = [r for r in reqs_pendientes if str(r["po_number"]).strip() == po_req_sel]
-                    df_rev = pd.DataFrame(items_a_revisar)
-        
-                    st.markdown(f"##### Partidas solicitadas para la PO: {po_req_sel}")
-                    cols_r_show = ["id", "tipo", "descripcion", "medida", "cantidad", "unidad", "urgencia", "motivo_uso", "solicitante", "link"]
-                    st.dataframe(df_rev[[c for c in cols_r_show if c in df_rev.columns]], use_container_width=True, hide_index=True)
-        
-                    c_dict1, c_dict2 = st.columns(2)
-        
-                    # ====================================================
-                    # ACCIÓN 1: RECHAZAR PARTIDA ESPECÍFICA O TODAS
-                    # ====================================================
-                    with c_dict1:
-                        with st.expander("❌ Rechazar Partida Específica o Requisición", expanded=False):
-                            st.markdown("Indica qué ítem requiere corrección por Inventarios:")
-                            
-                            opciones_items_rechazo = {
-                                "⚠️ Rechazar TODA la requisición (todas las partidas)": "TODAS"
-                            }
-                            for it in items_a_revisar:
-                                opciones_items_rechazo[f"ID {it['id']} - {it.get('descripcion')} ({it.get('medida', '')})"] = it['id']
-        
-                            item_a_rechazar = st.selectbox(
-                                "Partida a devolver a Inventarios:", 
-                                list(opciones_items_rechazo.keys()),
-                                key=f"sel_rechazo_{po_req_sel}"
-                            )
-                            id_seleccionado = opciones_items_rechazo[item_a_rechazar]
-        
-                            motivo_rechazo = st.text_area(
-                                "Motivo de corrección para Almacén:",
-                                placeholder="Ej. Medida de cortador errónea, material agotado con proveedor...",
-                                key=f"txt_motivo_{po_req_sel}"
-                            )
-        
-                            if st.button("Devolver para Corrección", type="secondary", key=f"btn_dev_{po_req_sel}"):
-                                if not motivo_rechazo.strip():
-                                    st.error("⚠️ Especifica el motivo del rechazo para que Inventarios sepa qué cambiar.")
-                                else:
-                                    if id_seleccionado == "TODAS":
-                                        supabase.table("requisiciones_atlas").update({
-                                            "estatus": "Rechazada",
-                                            "comentarios_supervisor": motivo_rechazo.strip()
-                                        }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
-                                        st.warning(f"Se rechazaron todas las partidas de la PO {po_req_sel}.")
-                                    else:
-                                        supabase.table("requisiciones_atlas").update({
-                                            "estatus": "Rechazada",
-                                            "comentarios_supervisor": motivo_rechazo.strip()
-                                        }).eq("id", id_seleccionado).execute()
-                                        st.warning(f"Partida ID {id_seleccionado} devuelta a Inventarios con la observación asignada.")
-                                    st.rerun()
-        
-                    # ====================================================
-                    # ACCIÓN 2: APROBAR Y MANDAR CORREO CON PDF A GERENCIA
-                    # ====================================================
-                    with c_dict2:
-                        with st.expander("✅ Aprobar y Notificar por Correo", expanded=True):
-                            # Valores por defecto desde Secrets
-                            default_to = st.secrets.get("REQUISICION_TO", "ericslosberg@gmail.com")
-                            default_cc = st.secrets.get("REQUISICION_CC", "shirsa.produccion@nae-supply.com, juan.rodriguez@nae-supply.com, diseno.dos.shirsa@nae-supply.com, soporte@nae-supply.com"
-                            )
-        
-                            c_mail1, c_mail2 = st.columns(2)
-                            with c_mail1:
-                                input_to = st.text_input("Para (Destinatarios principales):", value=default_to, key=f"to_{po_req_sel}")
-                            with c_mail2:
-                                input_cc = st.text_input("CC (En copia):", value=default_cc, key=f"cc_{po_req_sel}")
-        
-                            # Generar documento PDF
-                            pdf_bytes_req = generar_pdf_requisicion(po_req_sel, items_a_revisar)
-        
-                            st.download_button(
-                                label="📄 Descargar PDF de la Requisición",
-                                data=pdf_bytes_req,
-                                file_name=f"Requisicion_PO_{po_req_sel}.pdf",
-                                mime="application/pdf",
-                                key=f"dl_pdf_{po_req_sel}"
-                            )
-        
-                            st.write("")
-                            if st.button("🚀 Aprobar Requisición y Enviar Email", type="primary", key=f"btn_aprob_{po_req_sel}"):
-                                if not input_to.strip():
-                                    st.error("⚠️ Debe haber al menos un correo en el campo 'Para'.")
-                                else:
-                                    with st.spinner("Enviando correo con PDF adjunto..."):
-                                        try:
-                                            # Envío con To y CC
-                                            enviar_correo_gerente(po_req_sel, pdf_bytes_req, input_to.strip(), input_cc.strip())
-        
-                                            # Actualización de estatus en Supabase
-                                            supabase.table("requisiciones_atlas").update({
-                                                "estatus": "Aprobada",
-                                                "comentarios_supervisor": f"Aprobada por Supervisión el {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-                                            }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
-        
-                                            st.success(f"✅ Requisición de la PO {po_req_sel} aprobada y enviada a los destinatarios.")
-                                            st.rerun()
-                                        except Exception as e_envio:
-                                            st.error(f"Error al enviar correo: {e_envio}")
+        try:
+            res_req_sup = supabase.table("requisiciones_atlas").select("*").eq("estatus", "Enviada").execute()
+            reqs_pendientes = res_req_sup.data or []
+    
+            if reqs_pendientes:
+                pos_con_req = sorted(list(set(str(r["po_number"]).strip() for r in reqs_pendientes if r.get("po_number"))))
+                po_req_sel = st.selectbox("Seleccione la Requisición / PO a dictaminar:", pos_con_req, key="sup_po_req_select")
+    
+                items_a_revisar = [r for r in reqs_pendientes if str(r["po_number"]).strip() == po_req_sel]
+                df_rev = pd.DataFrame(items_a_revisar)
+    
+                st.markdown(f"##### Partidas solicitadas para la PO: {po_req_sel}")
+                cols_r_show = ["id", "tipo", "descripcion", "medida", "cantidad", "unidad", "urgencia", "motivo_uso", "solicitante", "link"]
+                st.dataframe(df_rev[[c for c in cols_r_show if c in df_rev.columns]], use_container_width=True, hide_index=True)
+    
+                c_dict1, c_dict2 = st.columns(2)
+    
+                # ACCIÓN 1: RECHAZAR PARTIDA ESPECÍFICA O TODAS
+                with c_dict1:
+                    with st.expander("❌ Rechazar Partida Específica o Requisición", expanded=False):
+                        st.markdown("Indica qué ítem requiere corrección por Inventarios:")
+                        
+                        opciones_items_rechazo = {
+                            "⚠️ Rechazar TODA la requisición (todas las partidas)": "TODAS"
+                        }
+                        for it in items_a_revisar:
+                            opciones_items_rechazo[f"ID {it['id']} - {it.get('descripcion')} ({it.get('medida', '')})"] = it['id']
+    
+                        item_a_rechazar = st.selectbox(
+                            "Partida a devolver a Inventarios:", 
+                            list(opciones_items_rechazo.keys()),
+                            key=f"sel_rechazo_{po_req_sel}"
+                        )
+                        id_seleccionado = opciones_items_rechazo[item_a_rechazar]
+    
+                        motivo_rechazo = st.text_area(
+                            "Motivo de corrección para Almacén:",
+                            placeholder="Ej. Medida de cortador errónea, material agotado con proveedor...",
+                            key=f"txt_motivo_{po_req_sel}"
+                        )
+    
+                        if st.button("Devolver para Corrección", type="secondary", key=f"btn_dev_{po_req_sel}"):
+                            if not motivo_rechazo.strip():
+                                st.error("⚠️ Especifica el motivo del rechazo para que Inventarios sepa qué cambiar.")
                             else:
-                                st.info("No hay requisiciones pendientes de validación en este momento.")
+                                if id_seleccionado == "TODAS":
+                                    supabase.table("requisiciones_atlas").update({
+                                        "estatus": "Rechazada",
+                                        "comentarios_supervisor": motivo_rechazo.strip()
+                                    }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
+
+                                    registrar_log_cambio(
+                                        po_number=po_req_sel,
+                                        campo_editado="requisicion",
+                                        valor_anterior="Enviada",
+                                        valor_nuevo="Rechazada (Todas)",
+                                        part_num="-",
+                                        motivo=f"Rechazada por {usuario_sup}: {motivo_rechazo.strip()}"
+                                    )
+                                    st.warning(f"Se rechazaron todas las partidas de la PO {po_req_sel}.")
+                                else:
+                                    supabase.table("requisiciones_atlas").update({
+                                        "estatus": "Rechazada",
+                                        "comentarios_supervisor": motivo_rechazo.strip()
+                                    }).eq("id", id_seleccionado).execute()
+
+                                    registrar_log_cambio(
+                                        po_number=po_req_sel,
+                                        campo_editado="requisicion_partida",
+                                        valor_anterior="Enviada",
+                                        valor_nuevo=f"Rechazada ID {id_seleccionado}",
+                                        part_num="-",
+                                        motivo=f"Devuelto por {usuario_sup}: {motivo_rechazo.strip()}"
+                                    )
+                                    st.warning(f"Partida ID {id_seleccionado} devuelta a Inventarios con la observación asignada.")
+                                st.rerun()
+    
+                # ACCIÓN 2: APROBAR Y MANDAR CORREO CON PDF A GERENCIA
+                with c_dict2:
+                    with st.expander("✅ Aprobar y Notificar por Correo", expanded=True):
+                        default_to = st.secrets.get("REQUISICION_TO", "ericslosberg@gmail.com")
+                        default_cc = st.secrets.get("REQUISICION_CC", "shirsa.produccion@nae-supply.com, juan.rodriguez@nae-supply.com, diseno.dos.shirsa@nae-supply.com, soporte@nae-supply.com")
+    
+                        c_mail1, c_mail2 = st.columns(2)
+                        with c_mail1:
+                            input_to = st.text_input("Para (Destinatarios principales):", value=default_to, key=f"to_{po_req_sel}")
+                        with c_mail2:
+                            input_cc = st.text_input("CC (En copia):", value=default_cc, key=f"cc_{po_req_sel}")
+    
+                        pdf_bytes_req = generar_pdf_requisicion(po_req_sel, items_a_revisar)
+    
+                        st.download_button(
+                            label="📄 Descargar PDF de la Requisición",
+                            data=pdf_bytes_req,
+                            file_name=f"Requisicion_PO_{po_req_sel}.pdf",
+                            mime="application/pdf",
+                            key=f"dl_pdf_{po_req_sel}"
+                        )
+    
+                        st.write("")
+                        if st.button("🚀 Aprobar Requisición y Enviar Email", type="primary", key=f"btn_aprob_{po_req_sel}"):
+                            if not input_to.strip():
+                                st.error("⚠️ Debe haber al menos un correo en el campo 'Para'.")
+                            else:
+                                with st.spinner("Enviando correo con PDF adjunto..."):
+                                    try:
+                                        enviar_correo_gerente(po_req_sel, pdf_bytes_req, input_to.strip(), input_cc.strip())
+    
+                                        supabase.table("requisiciones_atlas").update({
+                                            "estatus": "Aprobada",
+                                            "comentarios_supervisor": f"Aprobada por {usuario_sup} el {datetime.now().strftime('%d/%m/%Y %H:%M')}"
+                                        }).eq("po_number", po_req_sel).eq("estatus", "Enviada").execute()
+
+                                        registrar_log_cambio(po_number=po_req_sel,
+                                            campo_editado="requisicion",
+                                            valor_anterior="Enviada",
+                                            valor_nuevo="Aprobada",
+                                            part_num="-",
+                                            motivo=f"Aprobada y enviada a compras por {usuario_sup}"
+                                        )
+    
+                                        st.success(f"✅ Requisición de la PO {po_req_sel} aprobada y enviada a los destinatarios.")
+                                        st.rerun()
+                                    except Exception as e_envio:
+                                        st.error(f"Error al enviar correo: {e_envio}")
+            else:
+                st.info("No hay requisiciones pendientes de validación en este momento.")
+    
+        except Exception as e_r_sup:
+            st.error(f"Error en validación de requisiciones: {e_r_sup}")
+
+# ==========================================
+    # PESTAÑA: DESCARGA DE HISTORIALES (PDF)
+    # ==========================================
+    with tab_historial_pdf:
+        st.subheader("📥 Exportación de Bitácoras de Auditoría")
         
-            except Exception as e_r_sup:
-                st.error(f"Error en validación de requisiciones: {e_r_sup}")
+        col_sup_box, col_maq_box = st.columns(2)
+
+        # 1. BITÁCORA DE SUPERVISORES
+        with col_sup_box:
+            with st.container(border=True):
+                st.markdown("#### 📋 Bitácora de Supervisión")
+                st.caption("Cambios de estatus de POs, piezas y validación de requisiciones.")
+
+                try:
+                    res_sup = supabase.table("historial_cambios").select("*").execute()
+                    logs_sup = res_sup.data or []
+                    if logs_sup:
+                        logs_sup_ord = sorted(logs_sup, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_sup = generar_pdf_historial_cambios(logs_sup_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Supervisión (PDF)",
+                            data=pdf_bytes_sup,
+                            file_name=f"Bitacora_Supervision_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_sup_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de supervisión.")
+                except Exception as e_sup:
+                    st.warning(f"Error al leer bitácora de supervisión: {e_sup}")
+
+        # 2. BITÁCORA DE MAQUINISTAS
+        with col_maq_box:
+            with st.container(border=True):
+                st.markdown("#### 🛠️ Bitácora de Maquinistas")
+                st.caption("Herramientas agregadas/removidas, material y piezas terminadas.")
+
+                try:
+                    res_maq = supabase.table("historial_maquinistas").select("*").execute()
+                    logs_maq = res_maq.data or []
+                    if logs_maq:
+                        logs_maq_ord = sorted(logs_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                        pdf_bytes_maq = generar_pdf_historial_maquinistas(logs_maq_ord)
+                        st.download_button(
+                            label="📄 Descargar Bitácora de Maquinistas (PDF)",
+                            data=pdf_bytes_maq,
+                            file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+                        st.caption(f"Registros disponibles: {len(logs_maq_ord)} eventos.")
+                    else:
+                        st.info("Sin registros de maquinistas.")
+                except Exception as e_maq:
+                    st.warning(f"Error al leer bitácora de maquinistas: {e_maq}")
+
+
 
 
 
