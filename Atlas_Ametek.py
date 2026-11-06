@@ -344,13 +344,16 @@ def generar_pdf_historial_cambios(registros):
         return salida.encode("latin-1", errors="replace")
     return bytes(salida)
 
-# --- FUNCIÓN DE REGISTRO EN BITÁCORA / HISTORIAL ---
 def registrar_log_cambio(po_number, campo_editado, valor_anterior, valor_nuevo, part_num="-", motivo=""):
-    """Inserta una entrada en la tabla historial_cambios de Supabase de manera segura."""
+    """Inserta una entrada en la tabla historial_cambios de Supabase."""
     try:
+        # Priorizar el supervisor activo en turno
+        usr = st.session_state.get("supervisor_activo") or st.session_state.get("usuario_actual") or "Supervisor"
+        r_actual = st.session_state.get("rol_actual", "Supervisor")
+
         data = {
-            "usuario": st.session_state.get("usuario_actual", "Supervisor"),
-            "rol": st.session_state.get("rol_actual", "Supervisor"),
+            "usuario": str(usr),
+            "rol": str(r_actual),
             "po_number": str(po_number),
             "part_num": str(part_num) if part_num else "-",
             "campo_editado": str(campo_editado),
@@ -358,11 +361,11 @@ def registrar_log_cambio(po_number, campo_editado, valor_anterior, valor_nuevo, 
             "valor_nuevo": str(valor_nuevo) if valor_nuevo is not None else "",
             "motivo": str(motivo) if motivo else ""
         }
-        supabase.table("historial_cambios").insert(data).execute()
+        res = supabase.table("historial_cambios").insert(data).execute()
+        return res
     except Exception as e:
-        # Si la tabla aún no existe o hay algún fallo de red, no rompe la app
-        print(f"Error al registrar log de auditoría: {e}")
-
+        st.error(f"⚠️ Error al guardar en bitácora de auditoría: {e}")
+        return None
 def obtener_pos():
     try:
         res = supabase.table("piezas").select("po_number").execute()
