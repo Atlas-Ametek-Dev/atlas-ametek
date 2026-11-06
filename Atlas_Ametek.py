@@ -1638,7 +1638,8 @@ elif rol == "Supervisor":
 }
 </style>"""
 
-               html_tablero = (
+              # Montaje del contenedor HTML sin sangrías para evitar bloques de código planos
+                html_tablero = (
                     f"{css_scroll}\n"
                     f'<div class="matriz-scroll-container">\n'
                     f'<table style="border-collapse:separate; border-spacing:6px; font-family:\'Segoe UI\', Arial, sans-serif;">\n'
