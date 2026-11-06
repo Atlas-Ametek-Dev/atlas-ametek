@@ -1463,24 +1463,37 @@ elif rol == "Supervisor":
     # --------------------------------------------------------------------------
     # TAB 3: DESCARGA DE BITÁCORA DE AUDITORÍA (PDF)
     # --------------------------------------------------------------------------
+    # 2. DESCARGA EXCLUSIVA DEL PDF
     with tab_descarga_pdf:
         st.subheader("📄 Exportar Historial de Modificaciones")
-        st.write("Descarga el informe oficial en PDF horizontal con los cambios auditados por fecha, orden de compra y supervisor responsable.")
+        st.write("Genera y descarga el archivo PDF con todos los cambios auditados por fecha y supervisor.")
 
-        res_logs = supabase.table("historial_cambios").select("*").order("fecha_hora", desc=True).limit(300).execute()
-
-        if res_logs.data:
-            pdf_bytes = generar_pdf_historial_cambios(res_logs.data)
-            st.download_button(
-                label="📥 Descargar Reporte de Bitácora (PDF)",
-                data=pdf_bytes,
-                file_name=f"Historial_Cambios_Atlas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
-                mime="application/pdf",
-                use_container_width=True
-            )
-            st.caption(f"Registros disponibles en la base de datos: {len(res_logs.data)} eventos.")
-        else:
-            st.info("Aún no hay modificaciones registradas en el historial.")
+        try:
+            # Consulta de forma segura
+            res_logs = supabase.table("historial_cambios").select("*").execute()
+            
+            if res_logs.data:
+                # Ordenar en memoria (Python) para evitar que falle en PostgreSQL por temas de tipo
+                logs_ordenados = sorted(
+                    res_logs.data, 
+                    key=lambda x: x.get("fecha_hora", ""), 
+                    reverse=True
+                )[:300]
+                
+                pdf_bytes = generar_pdf_historial_cambios(logs_ordenados)
+                st.download_button(
+                    label="📥 Descargar Reporte de Cambios (PDF)",
+                    data=pdf_bytes,
+                    file_name=f"Historial_Cambios_Atlas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+                st.caption(f"Registros disponibles en la base de datos: {len(logs_ordenados)} eventos.")
+            else:
+                st.info("Aún no hay modificaciones registradas en el historial.")
+        except Exception as e:
+            st.warning("No se pudo obtener el historial de la base de datos. Asegúrate de que la tabla 'historial_cambios' esté creada.")
+            st.caption(f"Detalle del error: {e}")
 
 # ==========================================
 # VENTANA 5: GERENTE (DASHBOARD GENERAL)
