@@ -2158,7 +2158,7 @@ elif rol == "Supervisor":
                     with col_ensamble:
                         st.write("")
                         st.write("")
-                        nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
+                        nuevo_es_ensamble = st.checkbox("⚙️ Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
                     
                     with col_btn:
                         st.write("")
