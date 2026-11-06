@@ -419,47 +419,51 @@ def registrar_log_maquinista(po_number, part_num, tipo_accion, agregadas="", rem
 #      2. BITÁCORA DE MAQUINISTAS (PDF HORIZONTAL CON HORA LOCAL)
 # ==============================================================================
 def generar_pdf_historial_maquinistas(registros):
-    """Genera el reporte PDF en formato horizontal para bitácora de taller sin desbordes."""
+    """Genera el reporte PDF horizontal con celdas de altura calculada de forma exacta."""
     pdf = FPDF(orientation="L", unit="mm", format="Letter")
-    pdf.set_auto_page_break(auto=True, margin=12)
-    pdf.set_margins(left=10, top=10, right=10)
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(left=10, top=12, right=10)
     pdf.add_page()
 
+    # Título principal
     pdf.set_font("Helvetica", "B", 15)
     pdf.set_text_color(0, 74, 153)
     pdf.cell(0, 7, "BITACORA DE TRABAJO Y HERRAMENTAL - MAQUINISTAS", ln=True, align="C")
 
-    # Hora actual convertida a hora local de México
+    # Hora actual convertida a hora local
     try:
         hora_emision = pd.Timestamp.now(tz="America/Monterrey").strftime("%d/%m/%Y %H:%M:%S")
     except Exception:
         hora_emision = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
-    pdf.set_font("Helvetica", "", 9)
+    pdf.set_font("Helvetica", "", 8.5)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 5, f"Fecha de emision: {hora_emision}", ln=True, align="C")
-    pdf.ln(3)
+    pdf.ln(4)
 
-    # Anchos ajustados para entrar perfectamente en 258 mm
-    w_cols = [34, 24, 20, 26, 32, 40, 40, 42]
-    encabezados = ["Fecha / Hora", "Maquinista", "PO", "Parte", "Acción", "Herr. Agregadas", "Herr. Removidas", "Detalles / Notas"]
+    # Anchos calibrados (Suma exacta = 259 mm)
+    # [Fecha, Maq, PO, Parte, Acción, Agregadas, Removidas, Detalles]
+    w_cols = [28, 22, 18, 25, 26, 46, 46, 48]
+    encabezados = [
+        "Fecha / Hora", "Maquinista", "PO", "Parte", 
+        "Acción", "Herr. Agregadas", "Herr. Removidas", "Detalles / Notas"
+    ]
 
     def dibujar_encabezado_maq():
         pdf.set_fill_color(0, 74, 153)
         pdf.set_text_color(255, 255, 255)
         pdf.set_font("Helvetica", "B", 8)
         for i, enc in enumerate(encabezados):
-            pdf.cell(w_cols[i], 7, enc, border=1, ln=(1 if i == len(encabezados) - 1 else 0), align="C", fill=True)
+            pdf.cell(w_cols[i], 7.5, enc, border=1, ln=(1 if i == len(encabezados) - 1 else 0), align="C", fill=True)
         pdf.set_font("Helvetica", "", 7.5)
         pdf.set_text_color(30, 30, 30)
 
     dibujar_encabezado_maq()
-    alto_linea = 4.0
+    alto_renglon = 4.0  # Altura por cada línea de texto
 
     for reg in registros:
         fecha_raw = str(reg.get("fecha_hora", ""))
         try:
-            # Conversión explícita de UTC a hora local (UTC-6)
             dt = pd.to_datetime(fecha_raw)
             if dt.tz is None:
                 dt = dt.tz_localize("UTC")
@@ -478,15 +482,30 @@ def generar_pdf_historial_maquinistas(registros):
             f"{reg.get('detalle_general', '')} | {reg.get('notas', '')}".strip(" |")
         ]
 
-        # Calcular número de renglones necesarios según el contenido
-        lineas_celdas = []
-        for i, val in enumerate(valores):
-            ancho_t = pdf.get_string_width(val)
-            num_lineas = max(int(ancho_t / max(w_cols[i] - 3, 1)) + 1, len(val.split("\n")), 1)
-            lineas_celdas.append(num_lineas)
+        # Calcular renglones reales mediante simulación palabra por palabra
+        pdf.set_font("Helvetica", "", 7.5)
+        conteo_lineas = []
+        for i, texto in enumerate(valores):
+            ancho_util = w_cols[i] - 3.5  # Margen interior de celda
+            renglones = 0
+            for parrafo in str(texto).split("\n"):
+                palabras = parrafo.split(" ")
+                linea_act = ""
+                for p in palabras:
+                    prueba = f"{linea_act} {p}".strip()
+                    if pdf.get_string_width(prueba) <= ancho_util:
+                        linea_act = prueba
+                    else:
+                        renglones += 1
+                        linea_act = p
+                if linea_act:
+                    renglones += 1
+            conteo_lineas.append(max(renglones, 1))
 
-        altura_fila = max(max(lineas_celdas) * alto_linea + 3, 7.0)
+        # Altura de la fila con padding superior e inferior de 3 mm
+        altura_fila = max(conteo_lineas) * alto_renglon + 5.0
 
+        # Salto de página automático si no cabe la fila completa
         if pdf.get_y() + altura_fila > pdf.page_break_trigger:
             pdf.add_page()
             dibujar_encabezado_maq()
@@ -494,12 +513,12 @@ def generar_pdf_historial_maquinistas(registros):
         pos_x_inicio = pdf.get_x()
         pos_y_inicio = pdf.get_y()
 
+        # Dibujar rectángulos y colocar textos con margen interno limpio
         for i, val in enumerate(valores):
             pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
-            # Pequeño padding interno (+1mm en X y +1.2mm en Y) para que no roce los bordes
-            pdf.set_xy(pos_x_inicio + 1, pos_y_inicio + 1.2)
+            pdf.set_xy(pos_x_inicio + 1.8, pos_y_inicio + 2.5)
             alineacion = "C" if i in [0, 1, 2, 3, 4] else "L"
-            pdf.multi_cell(w_cols[i] - 2, alto_linea, val, border=0, align=alineacion)
+            pdf.multi_cell(w_cols[i] - 3.6, alto_renglon, val, border=0, align=alineacion)
             pos_x_inicio += w_cols[i]
 
         pdf.set_xy(pdf.l_margin, pos_y_inicio + altura_fila)
