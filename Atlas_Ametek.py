@@ -610,7 +610,6 @@ if rol == "Desarrollador":
         )
 
         if st.button("Procesar y Guardar Todos"):
-    
             if not po.strip():
                 st.error("⚠️ Debes ingresar el número de PO.")
             elif not archivos_pdf:
@@ -633,11 +632,15 @@ if rol == "Desarrollador":
         
                 for nombre_pieza, archivos in procesados.items():
                     with st.spinner(f'Procesando: {nombre_pieza}...'):
+                        # Inicialización garantizada para prevenir NameError
+                        url_org = None
+                        url_tl = None
+                        texto_traducido_tl = ""
+                        texto = ""
+                        timestamp = int(time.time())
+
                         try:
-                            timestamp = int(time.time())
-                            
                             # 1. Procesar archivo original
-                            url_org = ""
                             if 'org' in archivos:
                                 archivo_org = archivos['org']
                                 ruta = f"{nombre_pieza}_ORG_{timestamp}.pdf"
@@ -648,25 +651,19 @@ if rol == "Desarrollador":
                                 )
                                 url_org = supabase.storage.from_("planos").get_public_url(ruta)
         
-                            # 2. Procesar archivo TL y traducción (únicamente si se subió un archivo _TL)
-                            url_tl = ""
-                            texto_traducido_tl = ""
-                            texto = ""
-                            
+                            # 2. Procesar archivo TL y traducción (si existe)
                             if 'tl' in archivos:
                                 archivo_tl = archivos['tl']
                                 
-                                # Lectura del PDF
                                 try:
                                     import pypdf
                                     import io
                                     reader = pypdf.PdfReader(io.BytesIO(archivo_tl.getvalue()))
                                     texto = "".join([p.extract_text() for p in reader.pages if p.extract_text()])
                                 except Exception as e_pdf:
-                                    st.warning(f"No se pudo extraer texto del PDF TL: {e_pdf}")
+                                    st.warning(f"No se pudo extraer texto del PDF TL ({nombre_pieza}): {e_pdf}")
                                     texto = ""
         
-                                # Traducción en bloques de menos de 450 caracteres
                                 if texto.strip():
                                     try:
                                         time.sleep(0.4)
@@ -676,7 +673,6 @@ if rol == "Desarrollador":
                                     except Exception:
                                         try:
                                             from deep_translator import MyMemoryTranslator
-                                            
                                             mapa_idiomas_mymemory = {
                                                 'de': 'german',
                                                 'en': 'english',
@@ -706,7 +702,7 @@ if rol == "Desarrollador":
                                             texto_traducido_tl = "\n".join(partes_traducidas)
                                         except Exception as e_final:
                                             texto_traducido_tl = texto[:2000]
-                                            st.warning(f"⚠️ No se pudo traducir: {e_final}")
+                                            st.warning(f"⚠️ No se pudo traducir {nombre_pieza}: {e_final}")
                                 else:
                                     texto_traducido_tl = ""
         
@@ -720,21 +716,7 @@ if rol == "Desarrollador":
                                 url_tl = supabase.storage.from_("planos").get_public_url(ruta_tl)
         
                             # 3. Guardar / Actualizar en la base de datos Supabase
-                            supabase.table("piezas").upsert({
-                                "po_number": po,
-                                "Part number": nombre_pieza,
-                                "url_pdf_org": url_org,
-                                "url_pdf_tl": url_tl,
-                                "texto_traducido": texto_traducido_tl
-                            }, on_conflict="po_number, Part number").execute()
-        
-                            st.success(f"✅ Pieza {nombre_pieza} procesada y guardada correctamente.")
-        
-                        except Exception as e:
-                            st.error(f"Error procesando {nombre_pieza}: {e}")
-
-                            # 3. Guardar en la tabla unificada 'piezas'
-                            supabase.table("piezas").insert({
+                            registro_pieza = {
                                 "po_number": po.strip(),
                                 "Part number": nombre_pieza,
                                 "url_pdf_org": url_org,
@@ -742,10 +724,30 @@ if rol == "Desarrollador":
                                 "texto_traducido": texto_traducido_tl,
                                 "cantidad_solicitada": 1,
                                 "piezas_terminadas": 0,
-                                "porcentaje_avance": 0
-                            }).execute()
+                                "porcentaje_avance": 0,
+                                "es_ensamble": False
+                            }
 
-                            st.success(f"✅ Pieza '{nombre_pieza}' guardada en PO {po.strip()}.")
+                            # Buscar si la pieza ya existe para esta PO
+                            res_existente = supabase.table("piezas").select("id").eq("po_number", po.strip()).eq("Part number", nombre_pieza).execute()
+
+                            if res_existente.data:
+                                id_p = res_existente.data[0]["id"]
+                                datos_actualizacion = {}
+                                if url_org:
+                                    datos_actualizacion["url_pdf_org"] = url_org
+                                if url_tl:
+                                    datos_actualizacion["url_pdf_tl"] = url_tl
+                                if texto_traducido_tl:
+                                    datos_actualizacion["texto_traducido"] = texto_traducido_tl
+                                
+                                if datos_actualizacion:
+                                    supabase.table("piezas").update(datos_actualizacion).eq("id", id_p).execute()
+                            else:
+                                supabase.table("piezas").insert(registro_pieza).execute()
+
+                            st.success(f"✅ Pieza '{nombre_pieza}' procesada y guardada correctamente en PO {po.strip()}.")
+
                         except Exception as e:
                             st.error(f"Error procesando {nombre_pieza}: {e}")
 
@@ -757,12 +759,10 @@ if rol == "Desarrollador":
         st.caption("Usa esta pestaña para órdenes como la PO 50054832 donde las piezas ya se habían maquinado.")
 
         try:
-            # Traer historial de piezas para reutilizar planos y parámetros
             res_historico = supabase.table("piezas").select("*").execute()
             todas_piezas = res_historico.data
 
             if todas_piezas:
-                # Diccionario único por Part number
                 catalogo_base = {}
                 for p in todas_piezas:
                     p_num = str(p.get("Part number", "")).strip()
@@ -803,7 +803,8 @@ if rol == "Desarrollador":
                                 "cantidad_solicitada": cantidad_pedida,
                                 "fecha_entrega": str(fecha_requerida),
                                 "piezas_terminadas": 0,
-                                "porcentaje_avance": 0
+                                "porcentaje_avance": 0,
+                                "es_ensamble": bool(molde.get("es_ensamble", False))
                             }
                             
                             try:
