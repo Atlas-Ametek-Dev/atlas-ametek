@@ -1522,7 +1522,7 @@ elif rol == "Supervisor":
         sup_pass = col_s2.text_input("Contraseña / PIN de Supervisor:", type="password")
 
         if col_s2.button("Ingresar al Panel de Supervisión"):
-            if sup_pass == supervisores.get(sup_nombre) or sup_pass == "S2S3":
+            if sup_pass == supervisores.get(sup_nombre):
                 st.session_state.supervisor_activo = sup_nombre
                 st.session_state.usuario_actual = sup_nombre
                 st.rerun()
