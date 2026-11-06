@@ -577,6 +577,8 @@ else:
         st.session_state.usuario_actual = None
         st.session_state.supervisor_activo = None  # <-- Limpia el supervisor activo
         st.rerun()
+
+
 # ==========================================
 # VENTANA 1: DESARROLLADOR (COMPLETO)
 # ==========================================
@@ -608,6 +610,7 @@ if rol == "Desarrollador":
         )
 
         if st.button("Procesar y Guardar Todos"):
+    
             if not po.strip():
                 st.error("⚠️ Debes ingresar el número de PO.")
             elif not archivos_pdf:
@@ -630,15 +633,11 @@ if rol == "Desarrollador":
         
                 for nombre_pieza, archivos in procesados.items():
                     with st.spinner(f'Procesando: {nombre_pieza}...'):
-                        # Inicialización garantizada para prevenir NameError
-                        url_org = None
-                        url_tl = None
-                        texto_traducido_tl = ""
-                        texto = ""
-                        timestamp = int(time.time())
-        
                         try:
+                            timestamp = int(time.time())
+                            
                             # 1. Procesar archivo original
+                            url_org = ""
                             if 'org' in archivos:
                                 archivo_org = archivos['org']
                                 ruta = f"{nombre_pieza}_ORG_{timestamp}.pdf"
@@ -649,10 +648,15 @@ if rol == "Desarrollador":
                                 )
                                 url_org = supabase.storage.from_("planos").get_public_url(ruta)
         
-                            # 2. Procesar archivo TL y traducción (si existe)
+                            # 2. Procesar archivo TL y traducción (únicamente si se subió un archivo _TL)
+                            url_tl = ""
+                            texto_traducido_tl = ""
+                            texto = ""
+                            
                             if 'tl' in archivos:
                                 archivo_tl = archivos['tl']
                                 
+                                # Lectura del PDF
                                 try:
                                     import pypdf
                                     import io
@@ -662,6 +666,7 @@ if rol == "Desarrollador":
                                     st.warning(f"No se pudo extraer texto del PDF TL: {e_pdf}")
                                     texto = ""
         
+                                # Traducción en bloques de menos de 450 caracteres
                                 if texto.strip():
                                     try:
                                         time.sleep(0.4)
@@ -671,6 +676,7 @@ if rol == "Desarrollador":
                                     except Exception:
                                         try:
                                             from deep_translator import MyMemoryTranslator
+                                            
                                             mapa_idiomas_mymemory = {
                                                 'de': 'german',
                                                 'en': 'english',
@@ -679,11 +685,11 @@ if rol == "Desarrollador":
                                             }
                                             idioma_origen_mm = mapa_idiomas_mymemory.get(cod_idioma, 'german')
                                             traductor_alt = MyMemoryTranslator(source=idioma_origen_mm, target='spanish')
-        
+                    
                                             lineas = [l.strip() for l in texto.split("\n") if l.strip()]
                                             partes_traducidas = []
                                             bloque_temp = ""
-        
+                    
                                             for linea in lineas:
                                                 if len(bloque_temp) + len(linea) + 1 > 450:
                                                     if bloque_temp:
@@ -692,11 +698,11 @@ if rol == "Desarrollador":
                                                     bloque_temp = linea[:450]
                                                 else:
                                                     bloque_temp = f"{bloque_temp} {linea}".strip()
-        
+                    
                                             if bloque_temp:
                                                 time.sleep(0.4)
                                                 partes_traducidas.append(traductor_alt.translate(bloque_temp))
-        
+                    
                                             texto_traducido_tl = "\n".join(partes_traducidas)
                                         except Exception as e_final:
                                             texto_traducido_tl = texto[:2000]
@@ -713,8 +719,22 @@ if rol == "Desarrollador":
                                 )
                                 url_tl = supabase.storage.from_("planos").get_public_url(ruta_tl)
         
-                            # 3. Guardar / Actualizar registro en Supabase
-                            registro_pieza = {
+                            # 3. Guardar / Actualizar en la base de datos Supabase
+                            supabase.table("piezas").upsert({
+                                "po_number": po,
+                                "Part number": nombre_pieza,
+                                "url_pdf_org": url_org,
+                                "url_pdf_tl": url_tl,
+                                "texto_traducido": texto_traducido_tl
+                            }, on_conflict="po_number, Part number").execute()
+        
+                            st.success(f"✅ Pieza {nombre_pieza} procesada y guardada correctamente.")
+        
+                        except Exception as e:
+                            st.error(f"Error procesando {nombre_pieza}: {e}")
+
+                            # 3. Guardar en la tabla unificada 'piezas'
+                            supabase.table("piezas").insert({
                                 "po_number": po.strip(),
                                 "Part number": nombre_pieza,
                                 "url_pdf_org": url_org,
@@ -722,26 +742,10 @@ if rol == "Desarrollador":
                                 "texto_traducido": texto_traducido_tl,
                                 "cantidad_solicitada": 1,
                                 "piezas_terminadas": 0,
-                                "porcentaje_avance": 0,
-                                "es_ensamble": False
-                            }
-        
-                            # Buscar si la pieza ya existe para actualizarla o insertarla
-                            res_existente = supabase.table("piezas").select("id").eq("po_number", po.strip()).eq("Part number", nombre_pieza).execute()
-                            
-                            if res_existente.data:
-                                id_p = res_existente.data[0]["id"]
-                                # Conservar los campos si ya existían para no sobreescribir valores en proceso
-                                supabase.table("piezas").update({
-                                    "url_pdf_org": url_org if url_org else None,
-                                    "url_pdf_tl": url_tl if url_tl else None,
-                                    "texto_traducido": texto_traducido_tl if texto_traducido_tl else None
-                                }).eq("id", id_p).execute()
-                            else:
-                                supabase.table("piezas").insert(registro_pieza).execute()
-        
-                            st.success(f"✅ Pieza '{nombre_pieza}' procesada y guardada correctamente en PO {po.strip()}.")
-        
+                                "porcentaje_avance": 0
+                            }).execute()
+
+                            st.success(f"✅ Pieza '{nombre_pieza}' guardada en PO {po.strip()}.")
                         except Exception as e:
                             st.error(f"Error procesando {nombre_pieza}: {e}")
 
