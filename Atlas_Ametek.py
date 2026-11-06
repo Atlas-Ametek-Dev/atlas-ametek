@@ -1934,246 +1934,246 @@ elif rol == "Supervisor":
 
         st.divider()
 
-         # ===========================================
-            # SECCIÓN 1.5 : DESCARGAR REPORTE POR PO
-            # ===========================================
-            st.markdown("---")
-            st.subheader("REPORTE DE PO")
+        # ===========================================
+        # SECCIÓN 1.5 : DESCARGAR REPORTE POR PO
+        # ===========================================
+        st.markdown("---")
+        st.subheader("REPORTE DE PO")
 
-            todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
-            opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
-    
-            col_po_filtro, col_po_btn, col_po_pdf = st.columns([3.0, 1.2, 1.4])
-            with col_po_filtro:
-                po_filtrada_sel = st.selectbox(
-                    "🔍 Filtrar panorama por número de PO:",
-                    options=opciones_filtro_po,
-                    key="filtro_po_reporte_pdf",
-                    help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
-                )
-            with col_po_btn:
-                st.write("")
-                st.write("")
-                if po_filtrada_sel != "-- Todas las POs --":
-                    if st.button("Ir a editar esta PO ↗️", use_container_width=True):
-                        st.session_state.po_activa = po_filtrada_sel
-                        st.rerun()
+        todas_pos_registradas = sorted(list({str(r.get("po_number", "")).strip() for r in res_todas if r.get("po_number")}))
+        opciones_filtro_po = ["-- Todas las POs --"] + todas_pos_registradas
 
-            with col_po_pdf:
-                st.write("")
-                st.write("")
-                po_para_reporte = po_filtrada_sel if po_filtrada_sel != "-- Todas las POs --" else st.session_state.get("po_activa")
-                
-                if po_para_reporte and po_para_reporte in pos_matriz:
-                    datos_po_sel = pos_matriz[po_para_reporte]
-                    
-                    pdf_bytes = generar_pdf_reporte_po(
-                        po_numero=po_para_reporte,
-                        piezas_lista=datos_po_sel.get("piezas", []),
-                        comentario_po=datos_po_sel.get("comentario", "")
-                    )
-                    
-                    st.download_button(
-                        label="📄 Descargar PDF",
-                        data=pdf_bytes,
-                        file_name=f"Reporte_PO_{po_para_reporte}.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-    
-            # ==========================================
-            # SECCIÓN 2 (ABAJO): EDICIÓN Y GESTIÓN POR PO
-            # ==========================================
-            st.markdown("---")
-            st.subheader("🛠️ Modificación y Detalle por PO")
-    
-            idx_actual = lista_pos.index(st.session_state.po_activa) if st.session_state.po_activa in lista_pos else 0
-    
-            po_seleccionada = st.selectbox(
-                "Seleccione la PO a trabajar:",
-                options=lista_pos,
-                index=idx_actual,
-                key="sel_po_superv"
+        col_po_filtro, col_po_btn, col_po_pdf = st.columns([3.0, 1.2, 1.4])
+        with col_po_filtro:
+            po_filtrada_sel = st.selectbox(
+                "🔍 Filtrar panorama por número de PO:",
+                options=opciones_filtro_po,
+                key="filtro_po_reporte_pdf",
+                help="Selecciona o escribe el número de PO para ver únicamente su columna en el tablero"
             )
-            st.session_state.po_activa = po_seleccionada
-    
-            res_piezas_po = (
-                supabase.table("piezas")
-                .select("*")
-                .eq("po_number", po_seleccionada)
-                .order("fecha_entrega")
-                .order("id")
-                .execute()
-                .data or []
-            )
-    
-            comentario_po_val = ""
-            po_prod_val = False
-            for p_chk in res_piezas_po:
-                if p_chk.get("comentarios_po"):
-                    comentario_po_val = p_chk.get("comentarios_po")
-                if p_chk.get("po_en_produccion"):
-                    po_prod_val = True
-    
-            c_po_tit, c_po_prod, c_po_input, c_po_btn = st.columns([1.8, 1.8, 3.4, 1.0])
-    
-            with c_po_tit:
-                st.markdown(f"### 📦 PO: `{po_seleccionada}`")
-                st.caption(f"**Total partidas:** {len(res_piezas_po)}")
-    
-            with c_po_prod:
-                nuevo_en_prod = st.checkbox(
-                    "🏭 En Producción",
-                    value=po_prod_val,
-                    key=f"chk_prod_po_{po_seleccionada}",
-                    help="Marca toda la orden de compra con la etiqueta de Producción"
-                )
-    
-            with c_po_input:
-                nuevo_coment_po = st.text_input(
-                    f"Comentario PO {po_seleccionada}:",
-                    value=comentario_po_val,
-                    placeholder="Ej. Entrega: 25-Nov / Falta material / Soldadura externa...",
-                    key=f"txt_coment_po_{po_seleccionada}",
-                    label_visibility="collapsed"
-                )
-    
-            with c_po_btn:
-                if st.button("💾 Guardar PO", key=f"btn_save_po_{po_seleccionada}", use_container_width=True):
-                    supabase.table("piezas").update({
-                        "comentarios_po": nuevo_coment_po.strip(),
-                        "po_en_produccion": nuevo_en_prod
-                    }).eq("po_number", po_seleccionada).execute()
-
-                    # Registro de auditoría
-                    if nuevo_en_prod != po_prod_val:
-                        registrar_log_cambio(
-                            po_number=po_seleccionada,
-                            campo_editado="po_en_produccion",
-                            valor_anterior=str(po_prod_val),
-                            valor_nuevo=str(nuevo_en_prod),
-                            part_num="-",
-                            motivo=f"Cambio por {usuario_sup}"
-                        )
-                    if nuevo_coment_po.strip() != comentario_po_val.strip():
-                        registrar_log_cambio(
-                            po_number=po_seleccionada,
-                            campo_editado="comentarios_po",
-                            valor_anterior=comentario_po_val,
-                            valor_nuevo=nuevo_coment_po.strip(),
-                            part_num="-",
-                            motivo=f"Nota PO editada por {usuario_sup}"
-                        )
-
-                    st.toast(f"Estatus de PO {po_seleccionada} actualizado", icon="📦")
+        with col_po_btn:
+            st.write("")
+            st.write("")
+            if po_filtrada_sel != "-- Todas las POs --":
+                if st.button("Ir a editar esta PO ↗️", use_container_width=True):
+                    st.session_state.po_activa = po_filtrada_sel
                     st.rerun()
-    
-            pz_enfocada = st.session_state.get("pieza_enfoque", None)
-    
-            for p in res_piezas_po:
-                id_pieza = p["id"]
-                part_num = p.get("Part number", "Sin N/P")
-                fecha_ent = p.get("fecha_entrega") or "Sin fecha"
-                cant_sol = p.get("cantidad_solicitada") or p.get("cantidad") or 1
-                coment_pieza_act = p.get("comentarios") or ""
-    
-                es_foco = (pz_enfocada == str(part_num).strip())
-    
-                raw_estados = p.get("estados_proceso")
-                if not raw_estados:
-                    est_v = p.get("estado_proceso") or "En proceso"
-                    estados_actuales = [est_v] if (est_v in LISTA_ESTADOS_PIEZAS) else ["En proceso"]
-                else:
-                    estados_actuales = [e for e in raw_estados if e in LISTA_ESTADOS_PIEZAS]
-                    if not estados_actuales:
-                        estados_actuales = ["En proceso"]
-    
-                with st.container(border=True):
-                    badges_html = []
-                    for est in estados_actuales:
-                        info_col = ESTADOS_COLORES.get(est, {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
-                        badges_html.append(
-                            f"""<span style="
-                                display: inline-block;
-                                background-color: {info_col['bg']};
-                                color: {info_col['fg']};
-                                border: 2px solid {info_col['border']};
-                                padding: 7px 12px;
-                                margin: 3px 5px 3px 0px;
-                                border-radius: 6px;
-                                font-weight: 700;
-                                font-size: 13px;
-                                box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-                            ">{est}</span>"""
-                        )
-                    html_etiquetas = "".join(badges_html)
-    
-                    col_cab_info, col_cab_badges = st.columns([2.5, 7.5])
-                    with col_cab_info:
-                        icono = "🎯 " if es_foco else "⚙️ "
-                        st.markdown(f"### {icono}`{part_num}`")
-                        st.caption(f"📅 **Entrega:** {fecha_ent} &nbsp;|&nbsp; 📦 **Cantidad:** {cant_sol} pzs")
-                    with col_cab_badges:
-                        st.markdown(f"<div style='padding-top: 4px;'>{html_etiquetas}</div>", unsafe_allow_html=True)
-    
+
+        with col_po_pdf:
+            st.write("")
+            st.write("")
+            po_para_reporte = po_filtrada_sel if po_filtrada_sel != "-- Todas las POs --" else st.session_state.get("po_activa")
+            
+            if po_para_reporte and po_para_reporte in pos_matriz:
+                datos_po_sel = pos_matriz[po_para_reporte]
+                
+                pdf_bytes = generar_pdf_reporte_po(
+                    po_numero=po_para_reporte,
+                    piezas_lista=datos_po_sel.get("piezas", []),
+                    comentario_po=datos_po_sel.get("comentario", "")
+                )
+                
+                st.download_button(
+                    label="📄 Descargar PDF",
+                    data=pdf_bytes,
+                    file_name=f"Reporte_PO_{po_para_reporte}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+
+        # ==========================================
+        # SECCIÓN 2 (ABAJO): EDICIÓN Y GESTIÓN POR PO
+        # ==========================================
+        st.markdown("---")
+        st.subheader("🛠️ Modificación y Detalle por PO")
+
+        idx_actual = lista_pos.index(st.session_state.po_activa) if st.session_state.po_activa in lista_pos else 0
+
+        po_seleccionada = st.selectbox(
+            "Seleccione la PO a trabajar:",
+            options=lista_pos,
+            index=idx_actual,
+            key="sel_po_superv"
+        )
+        st.session_state.po_activa = po_seleccionada
+
+        res_piezas_po = (
+            supabase.table("piezas")
+            .select("*")
+            .eq("po_number", po_seleccionada)
+            .order("fecha_entrega")
+            .order("id")
+            .execute()
+            .data or []
+        )
+
+        comentario_po_val = ""
+        po_prod_val = False
+        for p_chk in res_piezas_po:
+            if p_chk.get("comentarios_po"):
+                comentario_po_val = p_chk.get("comentarios_po")
+            if p_chk.get("po_en_produccion"):
+                po_prod_val = True
+
+        c_po_tit, c_po_prod, c_po_input, c_po_btn = st.columns([1.8, 1.8, 3.4, 1.0])
+
+        with c_po_tit:
+            st.markdown(f"### 📦 PO: `{po_seleccionada}`")
+            st.caption(f"**Total partidas:** {len(res_piezas_po)}")
+
+        with c_po_prod:
+            nuevo_en_prod = st.checkbox(
+                "🏭 En Producción",
+                value=po_prod_val,
+                key=f"chk_prod_po_{po_seleccionada}",
+                help="Marca toda la orden de compra con la etiqueta de Producción"
+            )
+
+        with c_po_input:
+            nuevo_coment_po = st.text_input(
+                f"Comentario PO {po_seleccionada}:",
+                value=comentario_po_val,
+                placeholder="Ej. Entrega: 25-Nov / Falta material / Soldadura externa...",
+                key=f"txt_coment_po_{po_seleccionada}",
+                label_visibility="collapsed"
+            )
+
+        with c_po_btn:
+            if st.button("💾 Guardar PO", key=f"btn_save_po_{po_seleccionada}", use_container_width=True):
+                supabase.table("piezas").update({
+                    "comentarios_po": nuevo_coment_po.strip(),
+                    "po_en_produccion": nuevo_en_prod
+                }).eq("po_number", po_seleccionada).execute()
+
+                # Registro de auditoría
+                if nuevo_en_prod != po_prod_val:
+                    registrar_log_cambio(
+                        po_number=po_seleccionada,
+                        campo_editado="po_en_produccion",
+                        valor_anterior=str(po_prod_val),
+                        valor_nuevo=str(nuevo_en_prod),
+                        part_num="-",
+                        motivo=f"Cambio por {usuario_sup}"
+                    )
+                if nuevo_coment_po.strip() != comentario_po_val.strip():
+                    registrar_log_cambio(
+                        po_number=po_seleccionada,
+                        campo_editado="comentarios_po",
+                        valor_anterior=comentario_po_val,
+                        valor_nuevo=nuevo_coment_po.strip(),
+                        part_num="-",
+                        motivo=f"Nota PO editada por {usuario_sup}"
+                    )
+
+                st.toast(f"Estatus de PO {po_seleccionada} actualizado", icon="📦")
+                st.rerun()
+
+        pz_enfocada = st.session_state.get("pieza_enfoque", None)
+
+        for p in res_piezas_po:
+            id_pieza = p["id"]
+            part_num = p.get("Part number", "Sin N/P")
+            fecha_ent = p.get("fecha_entrega") or "Sin fecha"
+            cant_sol = p.get("cantidad_solicitada") or p.get("cantidad") or 1
+            coment_pieza_act = p.get("comentarios") or ""
+
+            es_foco = (pz_enfocada == str(part_num).strip())
+
+            raw_estados = p.get("estados_proceso")
+            if not raw_estados:
+                est_v = p.get("estado_proceso") or "En proceso"
+                estados_actuales = [est_v] if (est_v in LISTA_ESTADOS_PIEZAS) else ["En proceso"]
+            else:
+                estados_actuales = [e for e in raw_estados if e in LISTA_ESTADOS_PIEZAS]
+                if not estados_actuales:
+                    estados_actuales = ["En proceso"]
+
+            with st.container(border=True):
+                badges_html = []
+                for est in estados_actuales:
+                    info_col = ESTADOS_COLORES.get(est, {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"})
+                    badges_html.append(
+                        f"""<span style="
+                            display: inline-block;
+                            background-color: {info_col['bg']};
+                            color: {info_col['fg']};
+                            border: 2px solid {info_col['border']};
+                            padding: 7px 12px;
+                            margin: 3px 5px 3px 0px;
+                            border-radius: 6px;
+                            font-weight: 700;
+                            font-size: 13px;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                        ">{est}</span>"""
+                    )
+                html_etiquetas = "".join(badges_html)
+
+                col_cab_info, col_cab_badges = st.columns([2.5, 7.5])
+                with col_cab_info:
+                    icono = "🎯 " if es_foco else "⚙️ "
+                    st.markdown(f"### {icono}`{part_num}`")
+                    st.caption(f"📅 **Entrega:** {fecha_ent} &nbsp;|&nbsp; 📦 **Cantidad:** {cant_sol} pzs")
+                with col_cab_badges:
+                    st.markdown(f"<div style='padding-top: 4px;'>{html_etiquetas}</div>", unsafe_allow_html=True)
+
+                st.write("")
+
+                # 1. Leer el valor actual
+                es_ensamble_val = bool(p.get("es_ensamble", False))
+                
+                # 2. En las columnas de edición, agrega el checkbox (por ejemplo, redistribuyendo col_sel, col_coment, col_btn)
+                col_sel, col_coment, col_ensamble, col_btn = st.columns([4.2, 3.8, 1.2, 0.8])
+                
+                with col_sel:
+                    nuevos_estados = st.multiselect(
+                        "Editar etiquetas de la pieza:",
+                        options=LISTA_ESTADOS_PIEZAS,
+                        default=estados_actuales,
+                        key=f"multi_est_{id_pieza}",
+                        placeholder="Selecciona etiquetas..."
+                    )
+                
+                with col_coment:
+                    nuevo_coment_pz = st.text_input(
+                        "Comentario técnico:",
+                        value=coment_pieza_act,
+                        placeholder="Ej. Soldar con Argón / Dejar sobremedida...",
+                        key=f"txt_pz_{id_pieza}"
+                    )
+                
+                with col_ensamble:
                     st.write("")
-    
-                    # 1. Leer el valor actual
-                    es_ensamble_val = bool(p.get("es_ensamble", False))
-                    
-                    # 2. En las columnas de edición, agrega el checkbox (por ejemplo, redistribuyendo col_sel, col_coment, col_btn)
-                    col_sel, col_coment, col_ensamble, col_btn = st.columns([4.2, 3.8, 1.2, 0.8])
-                    
-                    with col_sel:
-                        nuevos_estados = st.multiselect(
-                            "Editar etiquetas de la pieza:",
-                            options=LISTA_ESTADOS_PIEZAS,
-                            default=estados_actuales,
-                            key=f"multi_est_{id_pieza}",
-                            placeholder="Selecciona etiquetas..."
-                        )
-                    
-                    with col_coment:
-                        nuevo_coment_pz = st.text_input(
-                            "Comentario técnico:",
-                            value=coment_pieza_act,
-                            placeholder="Ej. Soldar con Argón / Dejar sobremedida...",
-                            key=f"txt_pz_{id_pieza}"
-                        )
-                    
-                    with col_ensamble:
-                        st.write("")
-                        st.write("")
-                        nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
-                    
-                    with col_btn:
-                        st.write("")
-                        st.write("")
-                        if st.button("💾", key=f"btn_save_pz_{id_pieza}", help=f"Guardar cambios en {part_num}", use_container_width=True):
-                            estados_finales = nuevos_estados if nuevos_estados else ["En proceso"]
-                            
-                            # Guardar en base de datos incluyendo 'es_ensamble'
-                            supabase.table("piezas").update({
-                                "estados_proceso": estados_finales,
-                                "estado_proceso": estados_finales[0],
-                                "comentarios": nuevo_coment_pz.strip(),
-                                "es_ensamble": nuevo_es_ensamble
-                            }).eq("id", id_pieza).execute()
-                    
-                            # Registrar en la auditoría si cambió el estatus de ensamble
-                            if nuevo_es_ensamble != es_ensamble_val:
-                                registrar_log_cambio(
-                                    po_number=po_seleccionada,
-                                    campo_editado="es_ensamble",
-                                    valor_anterior=str(es_ensamble_val),
-                                    valor_nuevo=str(nuevo_es_ensamble),
-                                    part_num=part_num,
-                                    motivo=f"Marcado como ensamble por {usuario_sup}"
-                                )
-                    
-                            st.session_state["pieza_enfoque"] = None
-                            st.toast(f"Pieza {part_num} actualizada", icon="✅")
-                            st.rerun()
+                    st.write("")
+                    nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
+                
+                with col_btn:
+                    st.write("")
+                    st.write("")
+                    if st.button("💾", key=f"btn_save_pz_{id_pieza}", help=f"Guardar cambios en {part_num}", use_container_width=True):
+                        estados_finales = nuevos_estados if nuevos_estados else ["En proceso"]
+                        
+                        # Guardar en base de datos incluyendo 'es_ensamble'
+                        supabase.table("piezas").update({
+                            "estados_proceso": estados_finales,
+                            "estado_proceso": estados_finales[0],
+                            "comentarios": nuevo_coment_pz.strip(),
+                            "es_ensamble": nuevo_es_ensamble
+                        }).eq("id", id_pieza).execute()
+                
+                        # Registrar en la auditoría si cambió el estatus de ensamble
+                        if nuevo_es_ensamble != es_ensamble_val:
+                            registrar_log_cambio(
+                                po_number=po_seleccionada,
+                                campo_editado="es_ensamble",
+                                valor_anterior=str(es_ensamble_val),
+                                valor_nuevo=str(nuevo_es_ensamble),
+                                part_num=part_num,
+                                motivo=f"Marcado como ensamble por {usuario_sup}"
+                            )
+                
+                        st.session_state["pieza_enfoque"] = None
+                        st.toast(f"Pieza {part_num} actualizada", icon="✅")
+                        st.rerun()
 
         # ==========================================================================
         # PESTAÑA 2: REQUISICIONES DE MATERIAL
