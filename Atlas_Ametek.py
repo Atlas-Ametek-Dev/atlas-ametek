@@ -1503,7 +1503,7 @@ elif rol == "Inventarios":
 # ==========================================
 elif rol == "Supervisor":
 
-    st.header("📋 Área de Supervisión: Control Continuo")
+    st.header("📋 Área de Supervisión: Control Interno")
 
     # ==========================================
     # 0. CONTROL DE ACCESO POR USUARIO SUPERVISOR
