@@ -1250,10 +1250,10 @@ elif rol == "Supervisor":
     # 0. CONTROL DE ACCESO POR USUARIO SUPERVISOR
     # ==========================================
     supervisores = {
-        "Jonathan": "J2026",
-        "Ilagor": "I2026",
-        "Sayuri": "S2026",
-        "Alessandro": "A1234"
+        "Jonathan": "J6182",
+        "Ilagor": "I3954",
+        "Sayuri": "S7205",
+        "Alessandro": "A1498"
     }
 
     if "supervisor_activo" not in st.session_state:
