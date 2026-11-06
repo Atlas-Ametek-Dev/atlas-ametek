@@ -265,6 +265,85 @@ Sistema de Control y Gestión Atlas - Shirsa Maquinados
         server.sendmail(remitente, todos_destinatarios, msg.as_string())
 
 @st.cache_data(ttl=600, show_spinner=False)
+
+def generar_pdf_historial_cambios(registros):
+    """Genera un reporte PDF formal en orientación horizontal con la bitácora de cambios."""
+    pdf = FPDF(orientation="L", unit="mm", format="Letter")
+    pdf.set_auto_page_break(auto=True, margin=15)
+    pdf.set_margins(left=12, top=12, right=12)
+    pdf.add_page()
+
+    # Encabezado
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(0, 74, 153)
+    pdf.cell(0, 8, "HISTORIAL Y BITACORA DE MODIFICACIONES - ATLAS", ln=True, align="C")
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, f"Fecha de emision: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", ln=True, align="C")
+    pdf.ln(4)
+
+    w_cols = [38, 28, 22, 28, 35, 48, 48]
+    encabezados = ["Fecha / Hora", "Supervisor", "Rol", "PO", "Campo", "Valor Anterior", "Valor Nuevo"]
+
+    def dibujar_encabezado():
+        pdf.set_fill_color(0, 74, 153)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 8.5)
+        for i, enc in enumerate(encabezados):
+            pdf.cell(w_cols[i], 7, enc, border=1, ln=(1 if i == len(encabezados) - 1 else 0), align="C", fill=True)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.set_text_color(30, 30, 30)
+
+    dibujar_encabezado()
+
+    alto_linea = 4.2
+    for reg in registros:
+        fecha_raw = str(reg.get("fecha_hora", ""))
+        try:
+            fecha_txt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            fecha_txt = fecha_raw[:16]
+
+        valores = [
+            fecha_txt,
+            str(reg.get("usuario", "-")),
+            str(reg.get("rol", "-")),
+            str(reg.get("po_number", "-")),
+            str(reg.get("campo_editado", "-")),
+            str(reg.get("valor_anterior", "-")),
+            str(reg.get("valor_nuevo", "-"))
+        ]
+
+        lineas_celdas = []
+        for i, val in enumerate(valores):
+            ancho_t = pdf.get_string_width(val)
+            num_lineas = max(int(ancho_t / max(w_cols[i] - 3, 1)) + 1, len(val.split("\n")), 1)
+            lineas_celdas.append(num_lineas)
+
+        altura_fila = max(max(lineas_celdas) * alto_linea + 2, 6.5)
+
+        if pdf.get_y() + altura_fila > pdf.page_break_trigger:
+            pdf.add_page()
+            dibujar_encabezado()
+
+        pos_x_inicio = pdf.get_x()
+        pos_y_inicio = pdf.get_y()
+
+        for i, val in enumerate(valores):
+            pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
+            pdf.set_xy(pos_x_inicio, pos_y_inicio + 1)
+            alineacion = "C" if i in [0, 1, 2, 3] else "L"
+            pdf.multi_cell(w_cols[i], alto_linea, val, border=0, align=alineacion)
+            pos_x_inicio += w_cols[i]
+
+        pdf.set_xy(pdf.l_margin, pos_y_inicio + altura_fila)
+
+    salida = pdf.output(dest="S")
+    if isinstance(salida, str):
+        return salida.encode("latin-1", errors="replace")
+    return bytes(salida)
+
 def obtener_pos():
     try:
         res = supabase.table("piezas").select("po_number").execute()
@@ -1136,53 +1215,88 @@ elif rol == "Inventarios":
             st.error(f"Error al cargar módulo de bajas: {e_tab_b}")
 
 # ==============================================================================
-#                      MÓDULO DE SUPERVISIÓN Y AUDITORÍA
+#                  VENTANA: SUPERVISIÓN Y CONTROL DE TALLER
 # ==============================================================================
-if rol in ["Supervisor", "Desarrollador", "Gerente"]:
-    st.header(f"📋 Panel de Supervisión — Operador: {usuario}")
+elif rol == "Supervisor":
+    st.header("📋 Área de Supervisión")
 
-    # Tabs para organizar: Edición de Panorama vs. Historial de Auditoría
-    tab_panorama, tab_auditoria = st.tabs(["🔍 Panorama y Edición de POs", "📜 Bitácora de Cambios"])
+    supervisores = {
+        "Jonathan": "J2026",
+        "Ilagor": "I2026",
+        "Sayuri": "S2026",
+        "Alessandro": "1234"
+    }
 
-    # ---------------------------------------------------------
-    # TAB 1: PANORAMA Y EDICIÓN DE PARTIDAS
-    # ---------------------------------------------------------
+    # Control de sesión interna de Supervisor
+    if "supervisor_activo" not in st.session_state:
+        st.session_state.supervisor_activo = None
+
+    if not st.session_state.supervisor_activo:
+        st.subheader("🔐 Identificación de Supervisor")
+        col_s1, col_s2 = st.columns(2)
+        sup_nombre = col_s1.selectbox("Selecciona tu nombre:", list(supervisores.keys()))
+        sup_pass = col_s2.text_input("Contraseña / PIN de Supervisor:", type="password")
+
+        if col_s2.button("Ingresar al Panel de Supervisión"):
+            if sup_pass == supervisores.get(sup_nombre) or sup_pass == "S2S3":
+                st.session_state.supervisor_activo = sup_nombre
+                st.session_state.usuario_actual = sup_nombre
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta.")
+        st.stop()
+
+    # Supervisor activo en turno
+    usuario = st.session_state.supervisor_activo
+    c_hdr1, c_hdr2 = st.columns([4, 1])
+    c_hdr1.success(f"Supervisor en turno: **{usuario}**")
+    if c_hdr2.button("Cambiar Supervisor"):
+        st.session_state.supervisor_activo = None
+        st.session_state.usuario_actual = None
+        st.rerun()
+
+    # Pestañas principales del módulo
+    tab_panorama, tab_requisiciones, tab_descarga_pdf = st.tabs([
+        "🔍 Panorama General de POs", 
+        "🛠️ Requisiciones de Herramientas/Material", 
+        "📥 Descargar Bitácora (PDF)"
+    ])
+
+    dicc_pos = obtener_pos()
+
+    # --------------------------------------------------------------------------
+    # TAB 1: PANORAMA GENERAL Y EDICIÓN DE PARTIDAS
+    # --------------------------------------------------------------------------
     with tab_panorama:
-        diccionario_pos = obtener_pos()
-        
-        if not diccionario_pos:
+        if not dicc_pos:
             st.warning("No hay órdenes de compra registradas en el sistema.")
         else:
-            po_sel = st.selectbox("Selecciona la Orden de Compra (PO):", list(diccionario_pos.keys()), key="sup_po_sel")
-            
+            po_sel = st.selectbox("Selecciona la Orden de Compra (PO):", list(dicc_pos.keys()), key="sup_po_sel_pan")
+
             if po_sel:
-                # Consultar las partidas de la PO seleccionada
                 res_piezas = supabase.table("piezas").select("*").eq("po_number", po_sel).execute()
                 piezas = res_piezas.data
-                
+
                 if not piezas:
-                    st.info(f"No se encontraron registros para la PO {po_sel}.")
+                    st.info(f"No se encontraron partidas para la PO {po_sel}.")
                 else:
-                    st.subheader(f"Partidas de la PO: {po_sel} (Total: {len(piezas)} registros)")
-                    
-                    # Desplegar cada partida en un contenedor expandible para editar
+                    st.subheader(f"Partidas de la PO: {po_sel} (Total: {len(piezas)})")
+
                     for item in piezas:
                         id_item = item.get("id")
-                        # Compatibilidad con 'Part number' o 'part_num' según el esquema
                         p_num = item.get("Part number") or item.get("part_num") or "-"
                         cant = item.get("cantidad_solicitada") or item.get("cantidad") or 0
                         fecha_req = item.get("fecha") or "-"
                         comentario_actual = item.get("comentario_pz") or ""
-                        
+
                         estados_actuales = item.get("estados_proceso") or item.get("estados") or ["Pendiente"]
                         if not isinstance(estados_actuales, list):
                             estados_actuales = [estados_actuales]
-                        
-                        titulo_expander = f"Part: {p_num} | Cant: {cant} | Entrega: {fecha_req} | Estado actual: {', '.join(estados_actuales)}"
-                        
+
+                        titulo_expander = f"Part: {p_num} | Cant: {cant} | Entrega: {fecha_req} | Estatus: {', '.join(estados_actuales)}"
+
                         with st.expander(titulo_expander):
-                            col1, col2 = st.columns([1, 1])
-                            
+                            col1, col2 = st.columns(2)
                             with col1:
                                 opciones_estados = [
                                     "Pendiente", 
@@ -1193,114 +1307,180 @@ if rol in ["Supervisor", "Desarrollador", "Gerente"]:
                                     "Terminado / Listo para Envío", 
                                     "Entregado"
                                 ]
-                                
-                                # Multiselect para los estados de manufactura
                                 nuevos_estados = st.multiselect(
                                     "Estados de Proceso:",
                                     opciones_estados,
                                     default=[e for e in estados_actuales if e in opciones_estados] or ["Pendiente"],
                                     key=f"est_{id_item}"
                                 )
-                                
                             with col2:
                                 nuevo_comentario = st.text_area(
                                     "Notas / Observaciones del Supervisor:",
                                     value=comentario_actual,
                                     key=f"com_{id_item}"
                                 )
-                            
-                            # Botón de guardado con disparador de auditoría
-                            if st.button("💾 Guardar Cambios en Partida", key=f"btn_save_{id_item}"):
-                                cambios_detectados = False
-                                
-                                # 1. Validar si cambiaron los estados
+
+                            if st.button("💾 Guardar Cambios", key=f"btn_save_{id_item}"):
+                                cambios_hechos = False
+
+                                # Actualizar estados si cambiaron
                                 if sorted(nuevos_estados) != sorted(estados_actuales):
-                                    supabase.table("piezas").update({
-                                        "estados_proceso": nuevos_estados
-                                    }).eq("id", id_item).execute()
-                                    
+                                    supabase.table("piezas").update({"estados_proceso": nuevos_estados}).eq("id", id_item).execute()
                                     registrar_log_cambio(
                                         po_number=po_sel,
                                         campo_editado="estados_proceso",
                                         valor_anterior=str(estados_actuales),
                                         valor_nuevo=str(nuevos_estados),
                                         part_num=p_num,
-                                        motivo="Actualización de estatus de maquinado"
+                                        motivo=f"Actualizado por supervisor {usuario}"
                                     )
-                                    cambios_detectados = True
+                                    cambios_hechos = True
 
-                                # 2. Validar si cambió el comentario
+                                # Actualizar notas si cambiaron
                                 if nuevo_comentario.strip() != comentario_actual.strip():
-                                    supabase.table("piezas").update({
-                                        "comentario_pz": nuevo_comentario.strip()
-                                    }).eq("id", id_item).execute()
-                                    
+                                    supabase.table("piezas").update({"comentario_pz": nuevo_comentario.strip()}).eq("id", id_item).execute()
                                     registrar_log_cambio(
                                         po_number=po_sel,
                                         campo_editado="comentario_pz",
                                         valor_anterior=comentario_actual,
                                         valor_nuevo=nuevo_comentario.strip(),
                                         part_num=p_num,
-                                        motivo="Actualización de notas técnicas"
+                                        motivo=f"Nota editada por supervisor {usuario}"
                                     )
-                                    cambios_detectados = True
-                                
-                                if cambios_detectados:
-                                    st.success(f"Partida {p_num} actualizada correctamente por {usuario}.")
+                                    cambios_hechos = True
+
+                                if cambios_hechos:
+                                    st.success(f"Cambios guardados correctamente por {usuario}.")
                                     time.sleep(1)
                                     st.rerun()
                                 else:
-                                    st.info("No se realizaron modificaciones.")
+                                    st.info("No se detectaron modificaciones.")
 
-    # ---------------------------------------------------------
-    # TAB 2: BITÁCORA E HISTORIAL COMPLETO DE AUDITORÍA
-    # ---------------------------------------------------------
-    with tab_auditoria:
-        st.subheader("📜 Registro Completo de Modificaciones en el Sistema")
+    # --------------------------------------------------------------------------
+    # TAB 2: REQUISICIONES DE COMPRA (HERRAMIENTAS Y MATERIALES)
+    # --------------------------------------------------------------------------
+    with tab_requisiciones:
+        st.subheader("🛠️ Gestión de Requisiciones para Taller")
         
-        # Filtros rápidos para el supervisor
-        col_filtro1, col_filtro2 = st.columns(2)
-        with col_filtro1:
-            usuario_filtro = st.selectbox(
-                "Filtrar por Responsable:", 
-                ["Todos", "Jonathan", "Ilagor", "Alessandro", "Desarrollador"]
+        if not dicc_pos:
+            st.warning("No hay POs disponibles.")
+        else:
+            po_req = st.selectbox("Selecciona la PO para la Requisición:", list(dicc_pos.keys()), key="sup_po_req")
+            
+            if po_req:
+                res_req = supabase.table("piezas").select("*").eq("po_number", po_req).execute()
+                piezas_req = res_req.data
+
+                # Extraer partidas de herramientas registradas en las piezas
+                partidas_sugeridas = []
+                for pz in piezas_req:
+                    herr_txt = pz.get("herramienta_necesaria") or ""
+                    pn = pz.get("Part number") or pz.get("part_num") or "-"
+                    if herr_txt:
+                        for linea in str(herr_txt).split("\n"):
+                            linea_clean = linea.strip()
+                            if linea_clean:
+                                partidas_sugeridas.append({
+                                    "cantidad": 1,
+                                    "unidad": "PZA",
+                                    "tipo": "Herramienta",
+                                    "descripcion": linea_clean,
+                                    "medida": "-",
+                                    "link": "",
+                                    "motivo_uso": f"Maquinado pieza #{pn}"
+                                })
+
+                st.markdown(f"**Herramientas y requerimientos detectados para la PO {po_req}:** `{len(partidas_sugeridas)} ítems`")
+
+                # Formulario para agregar una partida manual de compra
+                with st.expander("➕ Agregar ítem manual a la Requisición"):
+                    col_r1, col_r2, col_r3 = st.columns([1, 1, 2])
+                    cant_it = col_r1.number_input("Cantidad:", min_value=1, value=1, step=1)
+                    unidad_it = col_r2.selectbox("Unidad:", ["PZA", "JGO", "MTR", "LBS", "KGS"])
+                    tipo_it = col_r3.selectbox("Tipo:", ["Herramienta / Inserto", "Material / Stock", "Consumible"])
+
+                    col_r4, col_r5 = st.columns([2, 1])
+                    desc_it = col_r4.text_input("Descripción técnica / Modelo:")
+                    medida_it = col_r5.text_input("Medida / Dimensión:", value="-")
+
+                    link_it = st.text_input("Enlace web (McMaster, MSC Direct, etc.):")
+                    motivo_it = st.text_input("Observaciones / Motivo de uso:")
+
+                    if st.button("Agregar a la lista provisional"):
+                        if desc_it.strip():
+                            if "requisiciones_manuales" not in st.session_state:
+                                st.session_state.requisiciones_manuales = []
+                            st.session_state.requisiciones_manuales.append({
+                                "cantidad": cant_it,
+                                "unidad": unidad_it,
+                                "tipo": tipo_it,
+                                "descripcion": desc_it.strip(),
+                                "medida": medida_it.strip(),
+                                "link": link_it.strip(),
+                                "motivo_uso": motivo_it.strip()
+                            })
+                            st.success("Ítem agregado.")
+                        else:
+                            st.error("Ingresa la descripción del ítem.")
+
+                partidas_totales_req = partidas_sugeridas + st.session_state.get("requisiciones_manuales", [])
+
+                if partidas_totales_req:
+                    df_previa = pd.DataFrame(partidas_totales_req)
+                    st.dataframe(df_previa[["cantidad", "unidad", "tipo", "descripcion", "medida", "motivo_uso"]], use_container_width=True)
+
+                    pdf_req_bytes = generar_pdf_requisicion(po_req, partidas_totales_req)
+
+                    col_b1, col_b2 = st.columns(2)
+                    with col_b1:
+                        st.download_button(
+                            label="📥 Descargar Requisición PDF",
+                            data=pdf_req_bytes,
+                            file_name=f"Requisicion_PO_{po_req}_{datetime.now().strftime('%Y%m%d')}.pdf",
+                            mime="application/pdf",
+                            use_container_width=True
+                        )
+
+                    with col_b2:
+                        if st.button("📧 Aprobar y Enviar a Gerencia / Compras", use_container_width=True):
+                            try:
+                                enviar_correo_gerente(po_req, pdf_req_bytes)
+                                registrar_log_cambio(
+                                    po_number=po_req,
+                                    campo_editado="requisicion_compra",
+                                    valor_anterior="Pendiente",
+                                    valor_nuevo=f"Enviada por {usuario} ({len(partidas_totales_req)} partidas)",
+                                    part_num="-",
+                                    motivo="Emisión formal de requisición de herramientas"
+                                )
+                                st.success("¡Requisición enviada exitosamente por correo y registrada en auditoría!")
+                                st.session_state.requisiciones_manuales = []
+                            except Exception as e:
+                                st.error(f"Error al enviar el correo: {e}")
+                else:
+                    st.info("No hay herramientas registradas para esta PO. Agrega ítems con el botón superior.")
+
+    # --------------------------------------------------------------------------
+    # TAB 3: DESCARGA DE BITÁCORA DE AUDITORÍA (PDF)
+    # --------------------------------------------------------------------------
+    with tab_descarga_pdf:
+        st.subheader("📄 Exportar Historial de Modificaciones")
+        st.write("Descarga el informe oficial en PDF horizontal con los cambios auditados por fecha, orden de compra y supervisor responsable.")
+
+        res_logs = supabase.table("historial_cambios").select("*").order("fecha_hora", desc=True).limit(300).execute()
+
+        if res_logs.data:
+            pdf_bytes = generar_pdf_historial_cambios(res_logs.data)
+            st.download_button(
+                label="📥 Descargar Reporte de Bitácora (PDF)",
+                data=pdf_bytes,
+                file_name=f"Historial_Cambios_Atlas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                mime="application/pdf",
+                use_container_width=True
             )
-        with col_filtro2:
-            limite_filas = st.slider("Número de registros recientes:", 10, 200, 50)
-            
-        try:
-            query = supabase.table("historial_cambios").select("*").order("fecha_hora", desc=True).limit(limite_filas)
-            
-            if usuario_filtro != "Todos":
-                query = query.eq("usuario", usuario_filtro)
-                
-            res_logs = query.execute()
-            
-            if res_logs.data:
-                df_logs = pd.DataFrame(res_logs.data)
-                
-                # Formateo estético de la fecha y hora
-                if "fecha_hora" in df_logs.columns:
-                    df_logs["fecha_hora"] = pd.to_datetime(df_logs["fecha_hora"]).dt.strftime('%d/%m/%Y %H:%M:%S')
-                
-                cols_ordenadas = [
-                    "fecha_hora", 
-                    "usuario", 
-                    "rol", 
-                    "po_number", 
-                    "part_num", 
-                    "campo_editado", 
-                    "valor_anterior", 
-                    "valor_nuevo", 
-                    "motivo"
-                ]
-                
-                cols_finales = [c for c in cols_ordenadas if c in df_logs.columns]
-                st.dataframe(df_logs[cols_finales], use_container_width=True, hide_index=True)
-            else:
-                st.info("No hay registros de auditoría que coincidan con la búsqueda.")
-        except Exception as e:
-            st.error(f"Error al leer la tabla de historial: {e}")
+            st.caption(f"Registros disponibles en la base de datos: {len(res_logs.data)} eventos.")
+        else:
+            st.info("Aún no hay modificaciones registradas en el historial.")
 
 # ==========================================
 # VENTANA 5: GERENTE (DASHBOARD GENERAL)
