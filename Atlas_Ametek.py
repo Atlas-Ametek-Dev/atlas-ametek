@@ -1556,6 +1556,48 @@ elif rol == "Supervisor":
     # PESTAÑA 1: PRODUCCIÓN Y TABLERO PANORAMA GENERAL
     # ==========================================================================
     with tab_piez_term:
+
+        # ==============================================================================
+        #      CATÁLOGOS GLOBALES DE ESTADOS Y COLORES DEL TABLERO
+        # ==============================================================================
+        LISTA_ESTADOS_PIEZAS = [
+            "En proceso",
+            "Detenida por el torno/fresadora",
+            "Pendiente de tratamiento",
+            "Con proveedor externo",
+            "Material pendiente",
+            "Herramienta pendiente",
+            "Terminada",
+            "Material en almacen",
+            "Fabricada en China",
+            "Comprado",
+            "En fila de calidad",
+            "Cancelada",
+            "Ya llego de china",
+            "Enviado a cliente"
+        ]
+        
+        # Categorías disponibles en el multiselect de filtros del panorama general
+        CATEGORIAS_FILTRO = ["PO en Producción"] + LISTA_ESTADOS_PIEZAS
+        
+        # Colores y bordes visuales para la leyenda de Acciones y celdas
+        ESTADOS_COLORES = {
+            "Produccion": {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"},
+            "En proceso": {"bg": "#F2F2F2", "fg": "#000000", "border": "#D9D9D9"},
+            "Detenida por el torno/fresadora": {"bg": "#BDD7EE", "fg": "#1F4E79", "border": "#8EA9DB"},
+            "Pendiente de tratamiento": {"bg": "#F8CBAD", "fg": "#C65911", "border": "#F4B084"},
+            "Con proveedor externo": {"bg": "#D9E1F2", "fg": "#305496", "border": "#B4C6E7"},
+            "Material pendiente": {"bg": "#FFF2CC", "fg": "#806000", "border": "#FFE699"},
+            "Herramienta pendiente": {"bg": "#E2EFDA", "fg": "#375623", "border": "#C6E0B4"},
+            "Terminada": {"bg": "#2F5597", "fg": "#FFFFFF", "border": "#1F3864"},
+            "Material en almacen": {"bg": "#A9D08E", "fg": "#375623", "border": "#70AD47"},
+            "Fabricada en China": {"bg": "#B4C6E7", "fg": "#203764", "border": "#8EA9DB"},
+            "Comprado": {"bg": "#F4B084", "fg": "#833C0C", "border": "#C65911"},
+            "En fila de calidad": {"bg": "#FFE699", "fg": "#806000", "border": "#FFD966"},
+            "Cancelada": {"bg": "#D9D9D9", "fg": "#595959", "border": "#BFBFBF"},
+            "Ya llego de china": {"bg": "#9BC2E6", "fg": "#1F4E79", "border": "#5B9BD5"},
+            "Enviado a cliente": {"bg": "#7030A0", "fg": "#FFFFFF", "border": "#4C1F6E"}
+        }
         st.subheader("Panorama General de POs (Matriz de Taller)")
 
         # Consulta con fallback seguro para 'es_ensamble'
