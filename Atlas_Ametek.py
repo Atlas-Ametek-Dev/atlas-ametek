@@ -366,6 +366,103 @@ def registrar_log_cambio(po_number, campo_editado, valor_anterior, valor_nuevo, 
     except Exception as e:
         st.error(f"⚠️ Error al guardar en bitácora de auditoría: {e}")
         return None
+
+def registrar_log_maquinista(po_number, part_num, tipo_accion, agregadas="", removidas="", detalle="", notas=""):
+    """Registra una entrada en la tabla independiente historial_maquinistas."""
+    try:
+        maq = st.session_state.get("maquinista_activo") or "Maquinista"
+        data = {
+            "maquinista": str(maq),
+            "po_number": str(po_number),
+            "part_num": str(part_num) if part_num else "-",
+            "tipo_accion": str(tipo_accion),
+            "herramientas_agregadas": str(agregadas) if agregadas else "-",
+            "herramientas_removidas": str(removidas) if removidas else "-",
+            "detalle_general": str(detalle) if detalle else "-",
+            "notas": str(notas) if notas else "-"
+        }
+        supabase.table("historial_maquinistas").insert(data).execute()
+    except Exception as e:
+        st.error(f"⚠️ Error al auditar acción del maquinista: {e}")
+
+def generar_pdf_historial_maquinistas(registros):
+    """Genera el reporte PDF en formato horizontal para bitácora de taller."""
+    pdf = FPDF(orientation="L", unit="mm", format="Letter")
+    pdf.set_auto_page_break(auto=True, margin=12)
+    pdf.set_margins(left=10, top=10, right=10)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.set_text_color(0, 74, 153)
+    pdf.cell(0, 7, "BITACORA DE TRABAJO Y HERRAMENTAL - MAQUINISTAS", ln=True, align="C")
+
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 5, f"Fecha de emision: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}", ln=True, align="C")
+    pdf.ln(3)
+
+    w_cols = [32, 25, 22, 28, 30, 42, 42, 38]
+    encabezados = ["Fecha / Hora", "Maquinista", "PO", "Parte", "Acción", "Herr. Agregadas", "Herr. Removidas", "Detalles / Notas"]
+
+    def dibujar_encabezado():
+        pdf.set_fill_color(0, 74, 153)
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_font("Helvetica", "B", 8)
+        for i, enc in enumerate(encabezados):
+            pdf.cell(w_cols[i], 7, enc, border=1, ln=(1 if i == len(encabezados) - 1 else 0), align="C", fill=True)
+        pdf.set_font("Helvetica", "", 7.5)
+        pdf.set_text_color(30, 30, 30)
+
+    dibujar_encabezado()
+    alto_linea = 4.0
+
+    for reg in registros:
+        fecha_raw = str(reg.get("fecha_hora", ""))
+        try:
+            fecha_txt = datetime.fromisoformat(fecha_raw.replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            fecha_txt = fecha_raw[:16]
+
+        valores = [
+            fecha_txt,
+            str(reg.get("maquinista", "-")),
+            str(reg.get("po_number", "-")),
+            str(reg.get("part_num", "-")),
+            str(reg.get("tipo_accion", "-")),
+            str(reg.get("herramientas_agregadas", "-")),
+            str(reg.get("herramientas_removidas", "-")),
+            f"{reg.get('detalle_general', '')} | {reg.get('notas', '')}".strip(" |")
+        ]
+
+        lineas_celdas = []
+        for i, val in enumerate(valores):
+            ancho_t = pdf.get_string_width(val)
+            num_lineas = max(int(ancho_t / max(w_cols[i] - 2, 1)) + 1, len(val.split("\n")), 1)
+            lineas_celdas.append(num_lineas)
+
+        altura_fila = max(max(lineas_celdas) * alto_linea + 2, 6.5)
+
+        if pdf.get_y() + altura_fila > pdf.page_break_trigger:
+            pdf.add_page()
+            dibujar_encabezado()
+
+        pos_x_inicio = pdf.get_x()
+        pos_y_inicio = pdf.get_y()
+
+        for i, val in enumerate(valores):
+            pdf.rect(pos_x_inicio, pos_y_inicio, w_cols[i], altura_fila)
+            pdf.set_xy(pos_x_inicio, pos_y_inicio + 1)
+            alineacion = "C" if i in [0, 1, 2, 3, 4] else "L"
+            pdf.multi_cell(w_cols[i], alto_linea, val, border=0, align=alineacion)
+            pos_x_inicio += w_cols[i]
+
+        pdf.set_xy(pdf.l_margin, pos_y_inicio + altura_fila)
+
+    salida = pdf.output(dest="S")
+    if isinstance(salida, str):
+        return salida.encode("latin-1", errors="replace")
+    return bytes(salida)
+
 def obtener_pos():
     try:
         res = supabase.table("piezas").select("po_number").execute()
@@ -655,7 +752,7 @@ if rol == "Desarrollador":
             st.error(f"Error al consultar el catálogo de piezas: {e_cat}")
             
 # ==========================================
-# VENTANA 2: MAQUINISTA (CON AUDITORÍA)
+# VENTANA 2: MAQUINISTA (CON AUDITORÍA ESPECÍFICA)
 # ==========================================
 elif rol == "Maquinista":
     st.header("🛠️ Área de Maquinado")
@@ -671,17 +768,18 @@ elif rol == "Maquinista":
         "Alessandro": "1234"
     }
 
-    # Control de sesión para no pedir contraseña en cada interacción
-    if "maquinista_activo" not in st.session_state:
+    if "maquinista_activo" not in st.session_state or st.session_state.maquinista_activo is None:
         st.session_state.maquinista_activo = None
 
-    if not st.session_state.maquinista_activo:
         col_l1, col_l2 = st.columns(2)
-        usuario_sel = col_l1.selectbox("Nombre:", list(maquinistas.keys()))
+        opciones_maq = ["-- Seleccionar operador --"] + list(maquinistas.keys())
+        usuario_sel = col_l1.selectbox("Nombre:", opciones_maq)
         password_ingresado = col_l2.text_input("Contraseña / PIN:", type="password")
 
         if col_l2.button("Ingresar a Taller", use_container_width=True):
-            if password_ingresado == maquinistas.get(usuario_sel):
+            if usuario_sel == "-- Seleccionar operador --":
+                st.error("⚠️ Debes seleccionar tu nombre.")
+            elif password_ingresado == maquinistas.get(usuario_sel):
                 st.session_state.maquinista_activo = usuario_sel
                 st.session_state.usuario_actual = usuario_sel
                 st.success(f"Bienvenido, {usuario_sel}.")
@@ -690,7 +788,6 @@ elif rol == "Maquinista":
                 st.error("Contraseña incorrecta.")
         st.stop()
 
-    # Maquinista autenticado
     usuario = st.session_state.maquinista_activo
     c_user1, c_user2 = st.columns([4, 1])
     c_user1.success(f"Operador activo: **{usuario}**")
@@ -699,167 +796,197 @@ elif rol == "Maquinista":
         st.session_state.usuario_actual = None
         st.rerun()
 
-    dicc_pos = obtener_pos()
-    if not dicc_pos:
-        st.warning("No hay POs registradas.")
-        st.stop()
+    tab_taller, tab_pdf_maq = st.tabs(["⚙️ Panel de Maquinado", "📥 Descargar Bitácora de Maquinistas (PDF)"])
 
-    po = st.selectbox("Seleccione la PO a trabajar:", list(dicc_pos.keys()))
-    
-    # Consulta de piezas de la PO
-    respuesta = supabase.table("piezas").select("*").eq("po_number", po).execute()
-    piezas = respuesta.data
+    # --------------------------------------------------------------------------
+    # PESTAÑA 1: PANEL DE MAQUINADO Y VISOR
+    # --------------------------------------------------------------------------
+    with tab_taller:
+        dicc_pos = obtener_pos()
+        if not dicc_pos:
+            st.warning("No hay POs registradas.")
+            st.stop()
 
-    if not piezas:
-        st.info("No hay piezas cargadas para esta PO.")
-        st.stop()
-    
-    # Manejo seguro de nombres de piezas (soporta 'Part number' o 'part_num')
-    nombres_piezas = {
-        (p.get("Part number") or p.get("part_num")): p 
-        for p in piezas 
-        if (p.get("Part number") or p.get("part_num"))
-    }
-    
-    pieza_seleccionada = st.selectbox("Selecciona la pieza a trabajar:", list(nombres_piezas.keys()))
-    datos_pieza = nombres_piezas[pieza_seleccionada]
-    col_part = "Part number" if "Part number" in datos_pieza else "part_num"
-    
-    # ==========================================
-    # 1. REGISTRO DE PIEZAS TERMINADAS
-    # ==========================================
-    with st.expander("📝 Registrar piezas terminadas"):
-        with st.form(key="form_registro"):
-            piezas_realizadas = st.multiselect("¿Qué piezas terminaste?", list(nombres_piezas.keys()))
-            notas_adicionales = st.text_area("Notas:")
-            
-            if st.form_submit_button("Registrar"):
-                notas_finales = str(notas_adicionales).strip() if notas_adicionales else "Sin notas"
+        po = st.selectbox("Seleccione la PO a trabajar:", list(dicc_pos.keys()))
+        
+        respuesta = supabase.table("piezas").select("*").eq("po_number", po).execute()
+        piezas = respuesta.data
+
+        if not piezas:
+            st.info("No hay piezas cargadas para esta PO.")
+            st.stop()
+        
+        nombres_piezas = {
+            (p.get("Part number") or p.get("part_num")): p 
+            for p in piezas 
+            if (p.get("Part number") or p.get("part_num"))
+        }
+        
+        pieza_seleccionada = st.selectbox("Selecciona la pieza a trabajar:", list(nombres_piezas.keys()))
+        datos_pieza = nombres_piezas[pieza_seleccionada]
+        col_part = "Part number" if "Part number" in datos_pieza else "part_num"
+        
+        # --- REGISTRO DE PIEZAS TERMINADAS ---
+        with st.expander("📝 Registrar piezas terminadas"):
+            with st.form(key="form_registro"):
+                piezas_realizadas = st.multiselect("¿Qué piezas terminaste?", list(nombres_piezas.keys()))
+                notas_adicionales = st.text_area("Notas:")
                 
-                for p_num in piezas_realizadas:
-                    update_data = {
-                        "maquinista_responsable": usuario,
-                        "notas_registro": notas_finales
-                    }
-                    supabase.table("piezas").update(update_data).eq(col_part, p_num).execute()
+                if st.form_submit_button("Registrar"):
+                    notas_finales = str(notas_adicionales).strip() if notas_adicionales else "Sin notas"
                     
-                    # Registro en historial de auditoría
-                    registrar_log_cambio(
-                        po_number=po,
-                        campo_editado="piezas_terminadas",
-                        valor_anterior="En maquinado",
-                        valor_nuevo=f"Terminada por {usuario} | Nota: {notas_finales}",
-                        part_num=p_num,
-                        motivo="Registro de maquinado finalizado"
-                    )
-                
-                st.success("¡Registro actualizado en la base de datos y auditado!")
+                    for p_num in piezas_realizadas:
+                        supabase.table("piezas").update({
+                            "maquinista_responsable": usuario,
+                            "notas_registro": notas_finales
+                        }).eq(col_part, p_num).execute()
+                        
+                        registrar_log_maquinista(
+                            po_number=po,
+                            part_num=p_num,
+                            tipo_accion="Pieza Terminada",
+                            detalle=f"Terminada por {usuario}",
+                            notas=notas_finales
+                        )
+                    
+                    st.success("¡Registro actualizado y archivado en bitácora!")
+                    time.sleep(1)
+                    st.rerun()
+
+        # --- PLANOS Y ESPECIFICACIONES ---
+        sub_tab1, sub_tab2, sub_tab3 = st.tabs(["📄 Plano Original", "⚙️ Especificaciones (TL)", "📝 Traducción"])
+
+        with sub_tab1:
+            url_org = datos_pieza.get('url_pdf_org')
+            if url_org and str(url_org).startswith("http"):
+                st.link_button("↗️ Abrir plano en pestaña nueva", url_org)
+                pdf_org_bytes = descargar_bytes_pdf(url_org)
+                if pdf_org_bytes:
+                    pdf_viewer(input=pdf_org_bytes, width=950, height=650)
+                else:
+                    st.warning("No se pudo cargar el archivo del plano.")
+            else:
+                st.warning("No hay plano original disponible.")
+
+        with sub_tab2:
+            url_tl = datos_pieza.get('url_pdf_tl')
+            if url_tl and str(url_tl).startswith("http"):
+                st.link_button("↗️ Abrir archivo TL en pestaña nueva", url_tl)
+                pdf_tl_bytes = descargar_bytes_pdf(url_tl)
+                if pdf_tl_bytes:
+                    pdf_viewer(input=pdf_tl_bytes, width=950, height=650)
+                else:
+                    st.warning("No se pudo cargar el archivo TL.")
+            else: 
+                st.warning("No hay archivo TL disponible.")
+
+        with sub_tab3:
+            st.info(datos_pieza.get('texto_traducido') or "Sin traducción disponible.")
+
+        # --- PARÁMETROS TÉCNICOS Y HERRAMENTAL ---
+        st.subheader("Actualizar Parámetros")
+        herramientas_bd = sorted(list(set(
+            h.strip() 
+            for p in piezas if p.get('herramienta_necesaria') 
+            for h in str(p['herramienta_necesaria']).split('\n') if h.strip()
+        )))
+        acabados_bd = sorted(list(set(str(p['acabado']).strip() for p in piezas if p.get('acabado') and str(p['acabado']).strip())))
+        tratamientos_bd = sorted(list(set(str(p['tratamiento']).strip() for p in piezas if p.get('tratamiento') and str(p['tratamiento']).strip())))
+
+        lista_herr_previas = [h.strip() for h in str(datos_pieza.get('herramienta_necesaria', '')).split('\n') if h.strip()]
+
+        with st.form(key=f"form_{datos_pieza[col_part]}"):
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                herr_sel = st.multiselect(
+                    "Herramientas existentes:", 
+                    herramientas_bd, 
+                    default=[h for h in lista_herr_previas if h in herramientas_bd]
+                )
+                herr_nuevas = st.text_area("Herramientas nuevas (Nombre - Medida - Material):", height=100)
+            with c2:
+                acabado_sel = st.selectbox("Acabado existente:", ["Ninguno"] + acabados_bd)
+                acabado_nuevo = st.text_input("Nuevo acabado:")
+                mat_recibido = st.checkbox("¿Material Recibido?", value=bool(datos_pieza.get('material_llegado')))
+            with c3:
+                trat_sel = st.selectbox("Tratamiento existente:", ["Ninguno"] + tratamientos_bd)
+                trat_nuevo = st.text_input("Nuevo tratamiento:")
+                comentarios_mat = st.text_area("Notas de material:", value=datos_pieza.get('notas_material') or "", height=68)
+
+            if st.form_submit_button("Guardar Parámetros"):
+                nuevas_ingresadas = [h.strip() for h in herr_nuevas.split('\n') if h.strip()]
+                herr_final_lista = list(dict.fromkeys(herr_sel + nuevas_ingresadas))
+                herr_final_txt = '\n'.join(herr_final_lista)
+
+                acab_final = acabado_nuevo.strip() if acabado_nuevo.strip() != "" else (acabado_sel if acabado_sel != "Ninguno" else "")
+                trat_final = trat_nuevo.strip() if trat_nuevo.strip() != "" else (trat_sel if trat_sel != "Ninguno" else "")
+
+                # Detección precisa de herramientas añadidas y removidas
+                set_previo = set(lista_herr_previas)
+                set_nuevo = set(herr_final_lista)
+                herramientas_anadidas = list(set_nuevo - set_previo)
+                herramientas_quitadas = list(set_previo - set_nuevo)
+
+                update_data = {
+                    "herramienta_necesaria": herr_final_txt,
+                    "acabado": acab_final,
+                    "tratamiento": trat_final,
+                    "material_llegado": mat_recibido,
+                    "notas_material": comentarios_mat.strip()
+                }
+                supabase.table("piezas").update(update_data).eq(col_part, datos_pieza[col_part]).execute()
+
+                detalles_cambios = []
+                if mat_recibido != bool(datos_pieza.get('material_llegado')):
+                    detalles_cambios.append(f"Material llegó: {mat_recibido}")
+                if acab_final != (datos_pieza.get('acabado') or ""):
+                    detalles_cambios.append(f"Acabado: {acab_final}")
+                if trat_final != (datos_pieza.get('tratamiento') or ""):
+                    detalles_cambios.append(f"Tratamiento: {trat_final}")
+
+                # Registrar con el desglose exacto
+                registrar_log_maquinista(
+                    po_number=po,
+                    part_num=datos_pieza[col_part],
+                    tipo_accion="Actualización de Parámetros",
+                    agregadas=", ".join(herramientas_anadidas) if herramientas_anadidas else "-",
+                    removidas=", ".join(herramientas_quitadas) if herramientas_quitadas else "-",
+                    detalle=" | ".join(detalles_cambios) if detalles_cambios else "Parámetros actualizados",
+                    notas=comentarios_mat.strip()
+                )
+
+                st.success("¡Parámetros actualizados y auditados con éxito!")
                 time.sleep(1)
                 st.rerun()
 
-    # ==========================================
-    # VISOR DE PLANOS Y ESPECIFICACIONES
-    # ==========================================
-    tab1, tab2, tab3 = st.tabs(["📄 Plano Original", "⚙️ Especificaciones (TL)", "📝 Traducción"])
+    # --------------------------------------------------------------------------
+    # PESTAÑA 2: DESCARGA DE BITÁCORA DE MAQUINISTAS (PDF)
+    # --------------------------------------------------------------------------
+    with tab_pdf_maq:
+        st.subheader("📥 Descargar Bitácora de Taller (PDF)")
+        st.write("Genera el reporte oficial en PDF con las modificaciones de herramientas, materiales y piezas terminadas por los maquinistas.")
 
-    with tab1:
-        url_org = datos_pieza.get('url_pdf_org')
-        if url_org and str(url_org).startswith("http"):
-            st.link_button("↗️ Abrir plano en pestaña nueva", url_org)
-            pdf_org_bytes = descargar_bytes_pdf(url_org)
-            if pdf_org_bytes:
-                pdf_viewer(input=pdf_org_bytes, width=950, height=650)
+        try:
+            res_logs_maq = supabase.table("historial_maquinistas").select("*").execute()
+            data_maq = res_logs_maq.data or []
+
+            if data_maq:
+                logs_ordenados = sorted(data_maq, key=lambda x: str(x.get("fecha_hora", "")), reverse=True)[:300]
+                pdf_bytes_m = generar_pdf_historial_maquinistas(logs_ordenados)
+
+                st.download_button(
+                    label="📄 Descargar Bitácora de Maquinistas en PDF",
+                    data=pdf_bytes_m,
+                    file_name=f"Bitacora_Maquinistas_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+                st.caption(f"Total de registros de taller disponibles: **{len(logs_ordenados)}** eventos.")
             else:
-                st.warning("No se pudo cargar el archivo del plano.")
-        else:
-            st.warning("No hay plano original disponible.")
-
-    with tab2:
-        url_tl = datos_pieza.get('url_pdf_tl')
-        if url_tl and str(url_tl).startswith("http"):
-            st.link_button("↗️ Abrir archivo TL en pestaña nueva", url_tl)
-            pdf_tl_bytes = descargar_bytes_pdf(url_tl)
-            if pdf_tl_bytes:
-                pdf_viewer(input=pdf_tl_bytes, width=950, height=650)
-            else:
-                st.warning("No se pudo cargar el archivo TL.")
-        else: 
-            st.warning("No hay archivo TL disponible.")
-
-    with tab3:
-        st.info(datos_pieza.get('texto_traducido') or "Sin traducción disponible.")
-
-    # ==========================================
-    # 2. ACTUALIZAR PARÁMETROS TÉCNICOS
-    # ==========================================
-    st.subheader("Actualizar Parámetros")
-    herramientas_bd = sorted(list(set(
-        h.strip() 
-        for p in piezas if p.get('herramienta_necesaria') 
-        for h in str(p['herramienta_necesaria']).split('\n') if h.strip()
-    )))
-    acabados_bd = sorted(list(set(str(p['acabado']).strip() for p in piezas if p.get('acabado') and str(p['acabado']).strip())))
-    tratamientos_bd = sorted(list(set(str(p['tratamiento']).strip() for p in piezas if p.get('tratamiento') and str(p['tratamiento']).strip())))
-
-    with st.form(key=f"form_{datos_pieza[col_part]}"):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            herr_sel = st.multiselect(
-                "Herramientas existentes:", 
-                herramientas_bd, 
-                default=[h.strip() for h in str(datos_pieza.get('herramienta_necesaria', '')).split('\n') if h.strip() in herramientas_bd]
-            )
-            herr_nuevas = st.text_area("Herramientas nuevas (Nombre - Medida - Material):", height=100)
-        with c2:
-            acabado_sel = st.selectbox("Acabado existente:", ["Ninguno"] + acabados_bd)
-            acabado_nuevo = st.text_input("Nuevo acabado:")
-            mat_recibido = st.checkbox("¿Material Recibido?", value=bool(datos_pieza.get('material_llegado')))
-        with c3:
-            trat_sel = st.selectbox("Tratamiento existente:", ["Ninguno"] + tratamientos_bd)
-            trat_nuevo = st.text_input("Nuevo tratamiento:")
-            comentarios_mat = st.text_area("Notas de material:", value=datos_pieza.get('notas_material') or "", height=68)
-
-        if st.form_submit_button("Guardar Parámetros"):
-            herr_final = '\n'.join(herr_sel + [h.strip() for h in herr_nuevas.split('\n') if h.strip()])
-            acab_final = acabado_nuevo.strip() if acabado_nuevo.strip() != "" else (acabado_sel if acabado_sel != "Ninguno" else "")
-            trat_final = trat_nuevo.strip() if trat_nuevo.strip() != "" else (trat_sel if trat_sel != "Ninguno" else "")
-            
-            # Valores anteriores para comparar en el log
-            herr_ant = str(datos_pieza.get('herramienta_necesaria') or "")
-            mat_ant = bool(datos_pieza.get('material_llegado'))
-            
-            update_data = {
-                "herramienta_necesaria": herr_final,
-                "acabado": acab_final,
-                "tratamiento": trat_final,
-                "material_llegado": mat_recibido,
-                "notas_material": comentarios_mat.strip()
-            }
-            supabase.table("piezas").update(update_data).eq(col_part, datos_pieza[col_part]).execute()
-
-            # Registrar si hubo cambios en herramientas o material
-            cambios_detalles = []
-            if herr_final != herr_ant:
-                cambios_detalles.append("Herramientas actualizadas")
-            if mat_recibido != mat_ant:
-                cambios_detalles.append(f"Material recibido: {mat_recibido}")
-            if acab_final != (datos_pieza.get('acabado') or ""):
-                cambios_detalles.append(f"Acabado: {acab_final}")
-
-            resumen_cambios = " | ".join(cambios_detalles) if cambios_detalles else "Ajuste general de parámetros"
-
-            registrar_log_cambio(
-                po_number=po,
-                campo_editado="parametros_taller",
-                valor_anterior=f"Mat: {mat_ant}",
-                valor_nuevo=resumen_cambios,
-                part_num=datos_pieza[col_part],
-                motivo=f"Modificado por maquinista {usuario}"
-            )
-            
-            st.success("¡Datos guardados!")
-            time.sleep(1)
-            st.rerun()
+                st.info("Aún no hay registros en la bitácora de maquinistas.")
+        except Exception as e_desc:
+            st.warning("No se pudo cargar la bitácora de maquinistas. Verifica que la tabla 'historial_maquinistas' esté creada en Supabase.")
+            st.caption(f"Detalle técnico: {e_desc}")
 
 # ==========================================
 # VENTANA 3: INVENTARIOS (Inventario_Atlas)
