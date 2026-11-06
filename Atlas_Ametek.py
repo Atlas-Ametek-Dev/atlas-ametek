@@ -1557,9 +1557,9 @@ elif rol == "Supervisor":
     # ==========================================================================
     with tab_piez_term:
 
-        # ==============================================================================
-        #      CATÁLOGOS GLOBALES DE ESTADOS Y COLORES DEL TABLERO
-        # ==============================================================================
+        # ==========================================
+        # CONFIGURACIÓN DE ESTADOS Y COLORES
+        # ==========================================
         LISTA_ESTADOS_PIEZAS = [
             "En proceso",
             "Detenida por el torno/fresadora",
@@ -1577,27 +1577,25 @@ elif rol == "Supervisor":
             "Enviado a cliente"
         ]
         
-        # Categorías disponibles en el multiselect de filtros del panorama general
-        CATEGORIAS_FILTRO = ["PO en Producción"] + LISTA_ESTADOS_PIEZAS
-        
-        # Colores y bordes visuales para la leyenda de Acciones y celdas
         ESTADOS_COLORES = {
             "Produccion": {"bg": "#FFFFFF", "fg": "#C0504D", "border": "#C0504D"},
-            "En proceso": {"bg": "#F2F2F2", "fg": "#000000", "border": "#D9D9D9"},
-            "Detenida por el torno/fresadora": {"bg": "#BDD7EE", "fg": "#1F4E79", "border": "#8EA9DB"},
-            "Pendiente de tratamiento": {"bg": "#F8CBAD", "fg": "#C65911", "border": "#F4B084"},
-            "Con proveedor externo": {"bg": "#D9E1F2", "fg": "#305496", "border": "#B4C6E7"},
-            "Material pendiente": {"bg": "#FFF2CC", "fg": "#806000", "border": "#FFE699"},
-            "Herramienta pendiente": {"bg": "#E2EFDA", "fg": "#375623", "border": "#C6E0B4"},
-            "Terminada": {"bg": "#2F5597", "fg": "#FFFFFF", "border": "#1F3864"},
-            "Material en almacen": {"bg": "#A9D08E", "fg": "#375623", "border": "#70AD47"},
-            "Fabricada en China": {"bg": "#B4C6E7", "fg": "#203764", "border": "#8EA9DB"},
-            "Comprado": {"bg": "#F4B084", "fg": "#833C0C", "border": "#C65911"},
-            "En fila de calidad": {"bg": "#FFE699", "fg": "#806000", "border": "#FFD966"},
-            "Cancelada": {"bg": "#D9D9D9", "fg": "#595959", "border": "#BFBFBF"},
-            "Ya llego de china": {"bg": "#9BC2E6", "fg": "#1F4E79", "border": "#5B9BD5"},
-            "Enviado a cliente": {"bg": "#7030A0", "fg": "#FFFFFF", "border": "#4C1F6E"}
+            "En proceso": {"bg": "#D9D9D9", "fg": "#000000", "border": "#BFBFBF"},
+            "Detenida por el torno/fresadora": {"bg": "#B8CCE4", "fg": "#000000", "border": "#95B3D7"},
+            "Pendiente de tratamiento": {"bg": "#FCD5B4", "fg": "#000000", "border": "#FABF8F"},
+            "Con proveedor externo": {"bg": "#E5B8E8", "fg": "#000000", "border": "#D899DD"},
+            "Material pendiente": {"bg": "#FFFF00", "fg": "#000000", "border": "#E6E600"},
+            "Herramienta pendiente": {"bg": "#548235", "fg": "#FFFFFF", "border": "#375623"},
+            "Terminada": {"bg": "#000000", "fg": "#FFFFFF", "border": "#000000"},
+            "Material en almacen": {"bg": "#00FF00", "fg": "#000000", "border": "#00D900"},
+            "Fabricada en China": {"bg": "#33CCCC", "fg": "#000000", "border": "#2BA8A8"},
+            "Comprado": {"bg": "#FF6600", "fg": "#FFFFFF", "border": "#CC5200"},
+            "En fila de calidad": {"bg": "#FFC000", "fg": "#000000", "border": "#D5A000"},
+            "Cancelada": {"bg": "#FFFFFF", "fg": "#C00000", "border": "#C00000"},
+            "Ya llego de china": {"bg": "#0099FF", "fg": "#FFFFFF", "border": "#007ACC"},
+            "Enviado a cliente": {"bg": "#4C2365", "fg": "#FFFFFF", "border": "#172554"}
         }
+        
+        CATEGORIAS_FILTRO = ["PO en Producción"] + LISTA_ESTADOS_PIEZAS
         st.subheader("Panorama General de POs (Matriz de Taller)")
 
         # Consulta con fallback seguro para 'es_ensamble'
