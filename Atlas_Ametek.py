@@ -1604,8 +1604,8 @@ elif rol == "Supervisor":
     
             with st.spinner("Generando tablero visual..."):
                 res_todas = supabase.table("piezas").select(
-                    'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion'
-                ).order("fecha_entrega").execute().data or []
+    'po_number, "Part number", cantidad_solicitada, fecha_entrega, estados_proceso, estado_proceso, comentarios, comentarios_po, po_en_produccion, es_ensamble'
+).order("fecha_entrega").execute().data or []
     
             # 1. Detectar meses disponibles dinámicamente
             nombres_meses = {
@@ -1741,13 +1741,14 @@ elif rol == "Supervisor":
                         if not filtro_estados_sin_prod and not coincide_po_prod:
                             continue
 
-                    pos_matriz[po_k]["piezas"].append({
-                        "part_num": pn_r,
-                        "fecha": f_ent,
-                        "cantidad": cant_pz_num,
-                        "estados": lista_est_pz,
-                        "comentario_pz": str(reg.get("comentarios") or "").strip()
-                    })
+                   pos_matriz[po_k]["piezas"].append({
+                    "part_num": pn_r,
+                    "fecha": f_ent,
+                    "cantidad": cant_pz_num,
+                    "estados": lista_est_pz,
+                    "comentario_pz": str(reg.get("comentarios") or "").strip(),
+                    "es_ensamble": bool(reg.get("es_ensamble", False))  # <-- Nuevo campo
+                })
     
                 lista_pos_cols = [
                     k for k in sorted(list(pos_matriz.keys()))
@@ -1794,21 +1795,29 @@ elif rol == "Supervisor":
                             cfg_main = ESTADOS_COLORES.get(ests_relevantes[0], {"fg": "#000000", "border": "#000000"})
                             bg_style = f"background: repeating-linear-gradient(45deg, {c1}, {c1} 10px, {c2} 10px, {c2} 20px); color: {cfg_main['fg']}; border: 2px solid {cfg_main['border']};"
 
+                        # Comprobar si forma parte de un ensamble
+                        es_ensamble_pz = pz.get("es_ensamble", False)
+                        icono_ensamble = " 🧩" if es_ensamble_pz else ""
+                        
+                        # En la descripción del tooltip flotante:
                         tooltip_html_lines = [
                             f"<b>⚙️ Pieza:</b> {num_parte}",
                             f"<b>📦 Cantidad:</b> {cant_pz} pzs",
                             f"<b>📅 Entrega:</b> {fecha_pz}",
                             f"<b>🏷️ Estados:</b> {', '.join(ests_pz)}"
                         ]
+                        if es_ensamble_pz:
+                            tooltip_html_lines.append("<b>🧩 Ensamble:</b> Parte de un ensamble")
                         if pz["comentario_pz"]:
                             tooltip_html_lines.append(f"<b>💬 Nota Pieza:</b> {pz['comentario_pz']}")
-
+                        
                         contenido_tooltip = "<br>".join(tooltip_html_lines)
-
+                        
+                        # En la celda visible:
                         celda_html = f'''<div class="custom-tooltip-wrapper" style="{bg_style} padding:7px 6px; margin-bottom:5px; border-radius:4px; font-size:15px; font-weight:bold; text-align:center; box-shadow:0 1px 2px rgba(0,0,0,0.08);">
-<span style="display:block; overflow:hidden; text-overflow:ellipsis;">{num_parte}</span>
-<div class="custom-tooltip-text">{contenido_tooltip}</div>
-</div>'''
+                        <span style="display:block; overflow:hidden; text-overflow:ellipsis;">{num_parte}{icono_ensamble}</span>
+                        <div class="custom-tooltip-text">{contenido_tooltip}</div>
+                        </div>'''
                         bloques_piezas.append(celda_html)
 
                     html_piezas = "".join(bloques_piezas)
@@ -2121,8 +2130,12 @@ elif rol == "Supervisor":
     
                     st.write("")
     
-                    col_sel, col_coment, col_btn = st.columns([5, 4.2, 0.8])
-    
+                    # 1. Leer el valor actual
+                    es_ensamble_val = bool(p.get("es_ensamble", False))
+                    
+                    # 2. En las columnas de edición, agrega el checkbox (por ejemplo, redistribuyendo col_sel, col_coment, col_btn)
+                    col_sel, col_coment, col_ensamble, col_btn = st.columns([4.2, 3.8, 1.2, 0.8])
+                    
                     with col_sel:
                         nuevos_estados = st.multiselect(
                             "Editar etiquetas de la pieza:",
@@ -2131,7 +2144,7 @@ elif rol == "Supervisor":
                             key=f"multi_est_{id_pieza}",
                             placeholder="Selecciona etiquetas..."
                         )
-    
+                    
                     with col_coment:
                         nuevo_coment_pz = st.text_input(
                             "Comentario técnico:",
@@ -2139,38 +2152,37 @@ elif rol == "Supervisor":
                             placeholder="Ej. Soldar con Argón / Dejar sobremedida...",
                             key=f"txt_pz_{id_pieza}"
                         )
-    
+                    
+                    with col_ensamble:
+                        st.write("")
+                        st.write("")
+                        nuevo_es_ensamble = st.checkbox("🧩 Ensamble", value=es_ensamble_val, key=f"chk_ensamble_{id_pieza}")
+                    
                     with col_btn:
                         st.write("")
                         st.write("")
                         if st.button("💾", key=f"btn_save_pz_{id_pieza}", help=f"Guardar cambios en {part_num}", use_container_width=True):
                             estados_finales = nuevos_estados if nuevos_estados else ["En proceso"]
+                            
+                            # Guardar en base de datos incluyendo 'es_ensamble'
                             supabase.table("piezas").update({
                                 "estados_proceso": estados_finales,
                                 "estado_proceso": estados_finales[0],
-                                "comentarios": nuevo_coment_pz.strip()
+                                "comentarios": nuevo_coment_pz.strip(),
+                                "es_ensamble": nuevo_es_ensamble
                             }).eq("id", id_pieza).execute()
-
-                            # Auditoría de cambio de pieza
-                            if sorted(estados_finales) != sorted(estados_actuales):
+                    
+                            # Registrar en la auditoría si cambió el estatus de ensamble
+                            if nuevo_es_ensamble != es_ensamble_val:
                                 registrar_log_cambio(
                                     po_number=po_seleccionada,
-                                    campo_editado="estados_proceso",
-                                    valor_anterior=str(estados_actuales),
-                                    valor_nuevo=str(estados_finales),
+                                    campo_editado="es_ensamble",
+                                    valor_anterior=str(es_ensamble_val),
+                                    valor_nuevo=str(nuevo_es_ensamble),
                                     part_num=part_num,
-                                    motivo=f"Actualizado por {usuario_sup}"
+                                    motivo=f"Marcado como ensamble por {usuario_sup}"
                                 )
-                            if nuevo_coment_pz.strip() != coment_pieza_act.strip():
-                                registrar_log_cambio(
-                                    po_number=po_seleccionada,
-                                    campo_editado="comentarios",
-                                    valor_anterior=coment_pieza_act,
-                                    valor_nuevo=nuevo_coment_pz.strip(),
-                                    part_num=part_num,
-                                    motivo=f"Nota técnica editada por {usuario_sup}"
-                                )
-    
+                    
                             st.session_state["pieza_enfoque"] = None
                             st.toast(f"Pieza {part_num} actualizada", icon="✅")
                             st.rerun()
